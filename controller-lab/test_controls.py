@@ -128,26 +128,43 @@ assert(count(2) == 1, 'A should click once, not repeat')
 tick(); tick(8192); assert(trace[#trace][1] == 3 and trace[#trace][2] == 27)
 -- Numeric zero must allow gameplay; camera follow precedes movement.
 tick(); worldActive = true; snapshot[3] = 25000; trace = {}
-tick(); tick(); assert(count(9) == 1 and locked, 'left stick should steer in world coordinates')
+tick(); tick(); assert(count(9) >= 1 and locked, 'left stick should steer in world coordinates')
 assert(not alwaysRun, 'stick movement must retain the chosen WALK setting')
+local function lastSteering()
+    for index=#trace,1,-1 do if trace[index][1]==9 then return trace[index] end end
+end
+-- Flow steering: the goal keeps sliding with the stick and never clears the
+-- route, so the walk animation and the single path survive the whole hold.
+local steady = count(9)
 tick(0,25); tick(0,25); tick(0,25)
-assert(count(9) == 1, 'steady direction should not continuously restart the path')
+assert(count(9) > steady, 'flow steering must refresh the goal while the stick is held')
+assert(count(11) == 0, 'flow steering must not clear the route while the stick is held')
+local steering = lastSteering()
+assert(steering[4] == 2, 'steering must request flow mode')
+assert(steering[2] > 0 and steering[3] == 0, 'flow goal must follow the stick direction')
+local fullTilt = steering[2]
+snapshot[3] = 12000; tick(0,200)
+local halfTilt = lastSteering()[2]
+assert(halfTilt > 0 and halfTilt < fullTilt, 'goal length must scale with stick deflection')
+snapshot[3] = 25000
+-- Turning re-dispatches the same tick with the new heading.
 snapshot[3] = 0; snapshot[4] = 25000; tick(0,25)
-assert(count(9) == 2, 'turning should not wait for the steady refresh interval')
+assert(lastSteering()[3] < 0, 'down on the stick must steer toward positive Y')
 -- Once moving, stay active between the start and release thresholds.
 snapshot[3] = 5000; snapshot[4] = 0; tick(0,25)
 assert(pad.moving, 'near-deadzone fluctuation should not restart movement')
 snapshot[3] = 0; tick(); assert(count('stop') == 1 and not locked, 'release should stop and restore camera')
 assert(count(5)>=2 and count(11)==1 and not alwaysRun, 'release stops the owned native route without changing walk/run')
--- Multi-selection refreshes less often, while turning and releasing stay fast.
-snapshot[18]=2; snapshot[3]=25000; trace={}; tick(); tick()
-local commands=count(9); assert(commands==1); tick(); tick(); tick(); assert(count(9)==commands)
-snapshot[3]=0; snapshot[4]=25000; tick(0,25); assert(count(9)==commands+1)
-routeRemaining=50; tick(0,200); assert(count(9)==commands+2)
-assert(trace[#trace][1]==9 and trace[#trace][4]==1,'near-arrival must append without replacing the active move')
+-- Group steering keeps the same flow cadence and never queues extra legs.
+snapshot[18]=2; snapshot[3]=25000; snapshot[4]=0; snapshot[15]=900; snapshot[16]=700
+pad.stallAt=nil; pad.stallPos=nil; trace={}; tick(); tick()
+local commands=count(9); assert(commands>=1)
+tick(); tick(); tick(); assert(count(9)>commands, 'group flow must keep refreshing the goal')
+assert(count(11)==0, 'group flow must not clear actions while steering')
+snapshot[3]=0; snapshot[4]=25000; tick(0,25); assert(count(9)>0)
 local acceptedAt=pad.lastMove
 rejectedSteering=true; tick(0,200)
-assert(pad.lastMove==acceptedAt,'a full waypoint queue must not postpone stuck-route recovery')
+assert(pad.lastMove==acceptedAt,'a rejected steering request must not count as a refresh')
 rejectedSteering=false
 routeRemaining=300
 snapshot[4]=0; tick(); assert(not alwaysRun and not pad.driveCursorHidden)
@@ -581,29 +598,30 @@ pad.controllerActive=true; pad.armed=true; pad.radial=false; pad.pendingWorld=ni
 for members=1,2 do for _,running in ipairs({false,true}) do for _,base in ipairs({0,45}) do
  snapshot[3]=0; snapshot[4]=0; tick(); alwaysRun=running; pad.runEnabled=running
  snapshot[18]=members; routeRemaining=300; trace={}; angle(base); tick(); tick()
- assert(#moves()==1)
- for n=1,60 do angle(base+(n%2==0 and 16 or -16)); tick() end
- assert(#moves()==1,'hand jitter must not repeatedly replace the route')
- assert(pad.nativeDriving and pad.moving and pad.runEnabled==running)
- -- Near arrival must not leak the unfiltered stick angle into a new leg.
- routeRemaining=50
- for n=1,12 do angle(base+(n%2==0 and 16 or -16)); tick() end
- local commands=moves(); assert(#commands>=2)
- for n=2,#commands do
-  local command=commands[n]
-  local dot=(command[2]*math.cos(math.rad(base))-command[3]*math.sin(math.rad(base)))/10000
-  assert(dot>0.996,'waypoint extensions must retain the stable heading')
-  assert(command[4]==1,'jitter must not turn an extension into route replacement')
+ assert(#moves()>=1)
+ for n=1,60 do angle(base+(n%2==0 and 16 or -16)); snapshot[15]=snapshot[15]+30; snapshot[16]=snapshot[16]+30; tick() end
+ local commands=moves(); assert(#commands>=1)
+ for _,command in ipairs(commands) do
+  local norm=math.sqrt(command[2]*command[2]+command[3]*command[3])
+  local dot=(command[2]*math.cos(math.rad(base))-command[3]*math.sin(math.rad(base)))/norm
+  assert(dot>0.996,'flow refreshes must retain the filtered heading under jitter')
+  assert(command[4]==2,'every refresh must request flow mode')
  end
+ assert(pad.nativeDriving and pad.moving and pad.runEnabled==running)
+ -- Near arrival keeps tracking the stick instead of appending queued legs.
+ routeRemaining=50
+ for n=1,12 do angle(base+(n%2==0 and 16 or -16)); snapshot[15]=snapshot[15]+30; snapshot[16]=snapshot[16]+30; tick() end
+ local tail=moves(); assert(#tail>=#commands,'near-arrival must keep refreshing the goal')
+ assert(tail[#tail][4]==2,'near-arrival refresh must stay in flow mode')
  -- A held gentle turn is accepted promptly instead of freezing the heading.
  routeRemaining=300; trace={}; angle(base+12)
- for n=1,10 do tick() end
- assert(#moves()>=1 and #moves()<=2,'a sustained gentle turn must settle within 250ms')
+ for n=1,10 do snapshot[15]=snapshot[15]+30; snapshot[16]=snapshot[16]+30; tick() end
+ assert(#moves()>=1,'a sustained gentle turn must keep steering')
  local dot=pad.moveDirectionX*math.cos(math.rad(base+12))+pad.moveDirectionY*math.sin(math.rad(base+12))
  assert(dot>0.998,'settled analog direction must follow the intended turn')
  -- Large deliberate turns bypass filtering; neutral stops on the next tick.
- trace={}; angle(base+102); tick(); assert(#moves()==1,'large turn must stay immediate')
- angle(base-78); tick(); tick(); assert(#moves()==2,'reversal must not interpolate through zero')
+ trace={}; angle(base+102); snapshot[15]=snapshot[15]+40; tick(); assert(#moves()>=1,'large turn must stay immediate')
+ angle(base-78); snapshot[15]=snapshot[15]+40; tick(); snapshot[15]=snapshot[15]+40; tick(); assert(#moves()>=2,'reversal must not interpolate through zero')
  snapshot[3]=0; snapshot[4]=0; tick()
  assert(not pad.moving and not pad.nativeDriving and pad.steerX==nil and pad.steerCandidateAt==nil)
 end end end

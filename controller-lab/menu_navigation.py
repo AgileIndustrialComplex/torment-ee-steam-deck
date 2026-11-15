@@ -138,6 +138,10 @@ def build_navigation(text):
                 fields.append('initial=true')
             elif menu_name=='QuitMenu' and quoted_property(own,'text')=='NO_BUTTON':
                 fields.append('initial=true')
+            elif menu_name=='START_MAIN' and name=='PST_NAV_START_MAIN_1':
+                # The title screen has no default control; start the controller
+                # cursor on New Game ("New Life") instead of an arbitrary node.
+                fields.append('initial=true')
             if kind=='list':
                 columns=[]
                 child_heights=[]

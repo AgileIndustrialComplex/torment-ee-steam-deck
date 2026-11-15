@@ -1231,7 +1231,7 @@ static int dispatch(lua_State *state) {
     if (window) window_size(window, &width, &height);
     if (operation == 12) { log_runtime(operation, a, b, c); if (a == 200) log_party_members(); }
     if ((operation >= 6 && operation <= 8) || operation == 15) return dispatch_nearby(state, operation, (uint32_t)a, b, window, width, height, focused);
-    if (operation >= 9 && operation <= 11) return dispatch_steering(state, operation, a, b, focused, c == 1);
+    if (operation >= 9 && operation <= 11) return dispatch_steering(state, operation, a, b, focused, c);
     if (operation == 16) {
         int queued = queue_world_zoom(window, a, width, height, focused);
         log_runtime(operation, a, 0, queued);

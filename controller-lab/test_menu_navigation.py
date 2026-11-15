@@ -349,6 +349,43 @@ assert(pad.pendingSplit); pad.controllerActive=false
 clickSplitDispatchButton(); assert(not menus.POPUP_REQUESTER and not pad.pendingSplit)
 pad.controllerActive=true
 
+-- Title screen: START opens before this module loads, so detection comes from
+-- the start engine rather than the menu stack, and the cursor starts on New Life.
+menus={}; worldActive=false; startEngine=otherScreen
+pad.navigationStack={}; pad.navigationFocus={}; pad.navigationCurrent=nil
+pad.navigationInitial={}; pad.background=nil; pad.snapPendingAt=nil
+pad.controllerActive=true; pad.cursorX=12; pad.cursorY=14; pad.error=nil
+assert(pad.TitleMenu()=='START_MAIN','title screen must be detected without the menu stack')
+assert(pad.MenuNavigation(5000,1024,768,false,true))
+assert(pad.navigationFocus.START_MAIN=='PST_NAV_START_MAIN_1','title screen must start on New Life')
+assert(pad.cursorX==519 and pad.cursorY==282,'cursor must rest on the New Life button center')
+-- Background-only detection: the module can load after START has finished opening.
+pad.background='BACKGROUND_START'; startEngine=nil
+assert(pad.TitleMenu()=='START_MAIN','background tag must also identify the title screen')
+startEngine=otherScreen
+-- D-pad walks the title buttons and never leaves the screen without a selection.
+local function titleNav(bit,now)
+    pad.previousButtons=0; pad.buttons=bit; pad.repeatAt={}
+    return pad.MenuNavigation(now or 200,1024,768,false,true)
+end
+titleNav(2); assert(pad.navigationFocus.START_MAIN~='PST_NAV_START_MAIN_1','down must move off New Life')
+titleNav(1); assert(pad.navigationFocus.START_MAIN~=nil,'up must land on a control')
+titleNav(8); assert(pad.navigationFocus.START_MAIN~=nil,'right must land on a control')
+-- Sticks aim freely, then the cursor settles back onto the nearest control.
+pad.previousButtons=0; pad.buttons=0; pad.repeatAt={}
+assert(pad.MenuNavigation(5100,1024,768,true,true))
+pad.cursorX,pad.cursorY=200,700
+assert(pad.navigationFocus.START_MAIN==nil,'stick aim must release the focused control')
+assert(pad.MenuNavigation(5400,1024,768,false,true))
+assert(pad.cursorX~=200 or pad.cursorY~=700,'resting sticks must snap back onto a control')
+assert(pad.navigationFocus.START_MAIN~=nil,'something must always stay selected on the title screen')
+local focus=pad.navigationFocus.START_MAIN
+assert(focus~=nil,'snap must leave a control selected')
+local fx,fy,fw,fh=Infinity_GetAreaScreen(focus)
+assert(pad.cursorX==fx+fw/2 and pad.cursorY==fy+fh/2,'snap must leave the cursor on the selected control')
+-- A is a plain cursor click, so the warp is what makes it hit the button.
+assert(pad.cursorX>=fx and pad.cursorX<=fx+fw and pad.cursorY>=fy and pad.cursorY<=fy+fh)
+
 
 ''')
 from radial_asset import build_selection_bam
@@ -370,4 +407,5 @@ for i,(width,height) in enumerate(((64,64),(57,97),(43,43))):
     assert red>=250 and green>=200 and blue<100,'selection must be bright yellow'
 generated=build_ui(source)
 assert "bam 'PSTPSEL'" in generated and 'PSTController.DispatchSplitStack()' in generated and 'PSTController.DispatchQuantity()' not in generated
+print('PASS: title-screen D-pad navigation, New Life initial focus, always-selected snap-back')
 print('PASS: dedicated UI split flow Y/D-pad/A/B on four rags; 2-of-4, clamp/cancel/stale stack guards; transparent yellow frames; popup, focus and existing controls')

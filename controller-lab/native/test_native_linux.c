@@ -356,6 +356,62 @@ int main(void) {
         expected_target_y = 1000;
         result_count = 0; dispatch_steering(NULL, 11, 0, 0, 1, 0);
     }
+    /* Flow mode (c==2): a held stick slides the live MoveToPoint destination
+     * every tick instead of issuing another group order, never clears the route
+     * and shortens the goal with stick deflection. */
+    for (int members = 1; members <= 2; ++members) {
+        model_members = members; integer(game_model, 0xa2b0, members);
+        ptr(head, 0, members == 2 ? second_head : NULL);
+        expected_run = 1; integer(game_model, 0xb9c0, 1); integer(leader, 0xc, 1000);
+        expected_append = 0; expected_target_x = members == 1 ? 1220 : 1300; expected_target_y = 1000;
+        result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 0);
+        int flow_clears = group_clear_count, flow_moves = group_move_count, flow_paths = path_requests;
+        for (int tick = 0; tick < 30; ++tick) {
+            int32_t dx = (tick % 2) ? 6000 : 10000;
+            int lookahead = (int)(60.0 + 120.0 * (dx / 10000.0));
+            if (members > 1) lookahead = (int)(lookahead * 1.35);
+            for (int index = 0; index < members; ++index) {
+                integer(model_actors[index], 0x3f0, 23); integer(model_actors[index], 0x3ec, 77);
+                integer(model_actors[index], 0x3e8, 0); integer(model_actors[index], 0x348, 1);
+            }
+            integer(leader, 0xc, 1000 + tick * 20);
+            result_count = 0; dispatch_steering(NULL, 9, dx, 0, 1, 2);
+            assert(results[1] == 1);
+            assert(group_move_count == flow_moves && group_clear_count == flow_clears);
+            assert(path_requests == flow_paths + (tick + 1) * members);
+            for (int index = 0; index < members; ++index) {
+                int32_t point[2], queued = 0; uint16_t opcode = 0;
+                memcpy(point, model_actors[index] + 0x460, 8);
+                memcpy(&queued, model_actors[index] + 0x348, 4);
+                memcpy(&opcode, model_actors[index] + 0x3f0, 2);
+                assert(point[0] == 1000 + tick * 20 + lookahead && point[1] == 1000);
+                assert(queued == 0 && opcode == 23);
+            }
+        }
+        /* No live move left: the leader's own sprite move is re-pointed instead
+         * of piling another group order onto the queue. */
+        for (int index = 0; index < members; ++index) integer(model_actors[index], 0x348, 0);
+        integer(leader, 0xc, 1000);
+        int fallback_lookahead = members > 1 ? (int)(180 * 1.35) : 180;
+        int before_sprite = path_requests;
+        result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
+        assert(results[1] == 1);
+        assert(group_move_count == flow_moves && group_clear_count == flow_clears);
+        assert(path_requests == before_sprite + members);
+        for (int index = 0; index < members; ++index) {
+            int32_t point[2]; memcpy(point, model_actors[index] + 0x460, 8);
+            assert(point[0] == 1000 + fallback_lookahead && point[1] == 1000);
+        }
+        /* With no path request available at all the group order is the last
+         * resort and stays a single append. */
+        request_move_path = NULL;
+        expected_target_x = 1000 + fallback_lookahead; expected_target_y = 1000; expected_append = 1;
+        result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
+        assert(results[1] == 1 && group_move_count == flow_moves + 1);
+        request_move_path = test_path_request;
+        result_count = 0; dispatch_steering(NULL, 11, 0, 0, 1, 0);
+    }
+    puts("PASS: flow steering slides the live destination per tick, magnitude-scaled, no group order or clear; single fallback order when idle");
     /* A wrong class or invalid destination cannot trigger a memory update. */
     model_members = 1; integer(game_model, 0xa2b0, 1); ptr(head, 0, NULL);
     expected_run = 0; integer(game_model, 0xb9c0, 0); integer(leader, 0xc, 1000);

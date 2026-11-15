@@ -95,6 +95,23 @@ end
 local function menu(name)
     return pad.overlayName==name or Infinity_IsMenuOnStack(name)
 end
+-- Menus where exactly one control must stay selected, with the sticks acting as
+-- free aim that settles back onto the nearest control. The title screen is the
+-- case that matters: its buttons are far apart and a floating cursor reads as
+-- "nothing is selected".
+local SNAP_MENUS={START_MAIN=true}
+-- The engine opens the START screen before this module is loaded, so its onOpen
+-- never reaches MenuOpened and START_MAIN never lands on the navigation stack.
+-- Detect the start engine itself, which is what makes the title buttons
+-- navigable with the D-pad.
+function pad.TitleMenu()
+    local specs=pad.navigationMenus
+    if not specs or not specs.START_MAIN then return nil end
+    if pad.overlayName=='START_MAIN' then return 'START_MAIN' end
+    local ok,active=pcall(function() return e:GetActiveEngine() end)
+    if ok and active and startEngine and active==startEngine then return 'START_MAIN' end
+    if pad.background=='BACKGROUND_START' then return 'START_MAIN' end
+end
 local function dialogRows()
     local choices = {}
     for index, entry in ipairs(dialogTable or {}) do
@@ -244,6 +261,7 @@ function pad.DispatchDialogue()
     -- Reject a queued response if a mouse/keyboard choice already changed it.
     for _, entry in ipairs(dialogTable or {}) do
         if entry == pending.entry and entry.marker == pending.marker then
+            pad.native(12,212,type(pending.marker)=='number' and pending.marker or -1,pad.dialogIndex or 0)
             chatboxScrollToBottom = 0
             worldScreen:OnDialogReplyClick(pending.marker)
             worldPlayerDialogSelection = 0
@@ -578,6 +596,7 @@ local function navigationMenu()
     end
     -- Usually only needed when switching to Xbox after a menu was already open.
     for name in pairs(specs) do if menu(name) then return name end end
+    return pad.TitleMenu()
 end
 function pad.NavigationNodes(name,width,height)
     local nodes={}
@@ -753,6 +772,21 @@ function pad.MenuNavigation(now,width,height,moved,allowDpad)
         focused=nearest; pad.navigationFocus[name]=nil
     end
     focused=focused or nearest
+    if SNAP_MENUS[name] then
+        -- Sticks aim, then the cursor settles back onto a control so something
+        -- is always selected. Never warp while the stick is still deflected.
+        if moved then
+            pad.snapPendingAt=now
+        elseif pad.snapPendingAt then
+            if now-pad.snapPendingAt>=180 then
+                pad.snapPendingAt=nil
+                if focused then focusNode(name,focused) end
+            end
+        elseif focused and pad.navigationFocus[name]~=focused.id then
+            focusNode(name,focused)
+        end
+        focused=focused or nearest
+    else pad.snapPendingAt=nil end
     if not allowDpad then return true end
     local direction,dx,dy
     if press(1,now) then direction,dx,dy='up',0,-1
@@ -1049,20 +1083,59 @@ function pad.Step()
     if inDialog then
         stopMovement()
         local choices = dialogRows()
-        pad.dialogIndex = clamp(pad.dialogIndex, 1, math.max(1, #choices))
+        -- Log the answer list only when its shape changes, so support can see
+        -- whether the engine exposed any clickable row without flooding the log.
+        local overflow=0
+        do
+            local ok,count=pcall(function() return #(dialogOverflowTable or {}) end)
+            if ok and type(count)=='number' then overflow=count end
+        end
+        local shape=#choices*16 + ((hasDialogResponse and 1 or 0)*8) + ((dialogViewMode and 2 or 0)*4)
+            + math.min(overflow,3)
+        if shape~=pad.dialogShape then
+            pad.dialogShape=shape
+            pad.native(12,210,#choices,
+                (hasDialogResponse and 1 or 0) + (dialogViewMode and 2 or 0) + overflow*4)
+        end
+        if (pad.dialogIndex or 0)~=pad.loggedDialogIndex then
+            pad.loggedDialogIndex=pad.dialogIndex or 0
+            pad.native(12,211,pad.dialogIndex or 0,#choices)
+        end
+        local previousIndex = pad.dialogIndex
+        pad.dialogIndex = clamp(pad.dialogIndex or 1, 1, math.max(1, #choices))
         if press(2, now) then pad.dialogIndex = math.min(#choices, pad.dialogIndex + 1) end
         if press(1, now) then pad.dialogIndex = math.max(1, pad.dialogIndex - 1) end
+        if pad.dialogIndex ~= previousIndex then pad.haptic(1500, 1500) end
         local row = choices[pad.dialogIndex]
         if row then
+            -- The answer list renders its white highlight from this variable and
+            -- clears it on mouse exit, so re-assert it every tick: the D-pad
+            -- selection then survives cursor warps and stray mouse movement.
             glowTest = row
             worldPlayerDialogSelection = row
+            chatboxScrollToBottom = 0
         end
         if edge(4096) and not pad.pendingDialog then
-            if dialogViewMode or #(dialogOverflowTable or {}) > 0 or not row then
+            if dialogViewMode or #(dialogOverflowTable or {}) > 0 then
+                -- Scrolled transcript or review mode: the stock Continue action
+                -- is the only correct move.
                 pad.pendingDialog = { continue = true }
-            else
+            elseif row then
                 local entry = dialogTable[row]
                 pad.pendingDialog = { entry = entry, marker = entry.marker }
+            elseif true then
+                -- No row the engine reports as clickable but the chat is idle:
+                -- speak the first available answer directly instead of pressing
+                -- a Continue button the stock UI disables while answers exist.
+                local first
+                for index, entry in ipairs(dialogTable or {}) do
+                    if entry.marker ~= nil then first = index break end
+                end
+                if first then
+                    pad.pendingDialog = { entry = dialogTable[first], marker = dialogTable[first].marker }
+                else pad.pendingDialog = { continue = true } end
+            else
+                pad.pendingDialog = { continue = true }
             end
             key(13)
             pad.dialogIndex = 1
@@ -1145,20 +1218,20 @@ function pad.Step()
         if now>=(pad.nextMovementLog or 0) then
             pad.nextMovementLog=now+500; pad.native(12,200,remaining,selectedCount)
         end
-        local refresh=4000
-        local turnDue=turned and now-pad.lastMove>=pad.moveTurnInterval
-        local recovery=now-pad.lastMove>=refresh
-        local extend=not starting and not turnDue and not recovery
-            and remaining>=0 and remaining<=120 and now-pad.lastMove>=150
-        local due=starting or turnDue or extend or recovery
+        -- Flow steering: the goal slides with the stick every 70 ms and its
+        -- length follows stick deflection, so the character tracks the stick
+        -- continuously instead of chasing one distant waypoint.
+        local due=starting or turned or now-(pad.lastMove or 0)>=70
         if positionValid ~= 0 and due and playerX >= 0 and playerY >= 0 then
             if game:GetState() == 0 then
-                local _,issued=pad.native(9,math.floor(dx*10000),math.floor(-dy*10000),extend and 1 or 0)
+                local _,issued=pad.native(9,math.floor(dx*lm*10000),math.floor(-dy*lm*10000),2)
                 if issued~=0 then
                     pad.nativeDriving=true
                     pad.lastMove, pad.moving = now, true
                     pad.moveDirectionX, pad.moveDirectionY = dx, dy
-                    pad.steerCandidateAt=nil
+                    -- Do not clear the turn candidate here: flow mode refreshes
+                    -- every 70 ms, and clearing it would restart the 80 ms
+                    -- persistence timer before a gentle turn could settle.
                 end
             end
         end
@@ -1196,8 +1269,11 @@ end
 -- Screen changes already call this from their onOpen callbacks. Keep the driver
 -- on the current UI stack; queued SDL input avoids re-entering screen switches.
 local originalSetBackground = Infinity_SetBackground
-Infinity_SetBackground = function(...)
-    originalSetBackground(...)
+Infinity_SetBackground = function(name,...)
+    originalSetBackground(name,...)
+    -- Remember the background so the title screen stays detectable even when
+    -- its onOpen callback ran before this module was loaded.
+    pad.background=name
     pcall(pad.EnsureDriver)
 end
 local originalSetOverlay=Infinity_SetOverlay

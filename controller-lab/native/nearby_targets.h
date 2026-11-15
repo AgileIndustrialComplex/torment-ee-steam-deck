@@ -252,6 +252,31 @@ static int retarget_active_move(uintptr_t actor,uintptr_t area,int32_t *destinat
     request_move_path((void *)actor,destination);
     return 1;
 }
+/* Flow steering: slide the destination of the live MoveToPoint instead of
+ * reading it back. Keeps the action identity and elapsed ticks (no idle frame,
+ * no animation restart) and still replans through the stock path request.
+ */
+static int steer_fail;
+static int steer_live_move(uintptr_t actor,uintptr_t area,const int32_t *destination) {
+    uint16_t opcode=0; int32_t queued=0; uintptr_t action=0;
+    int16_t width=0,height=0;
+    steer_fail=0;
+    if (!request_move_path || !clear_pending_actions) { steer_fail=1; return 0; }
+    if (read_pointer(actor)!=(uintptr_t)engine+E_VTABLE_SPRITE) { steer_fail=2; return 0; }
+    if (read_pointer(actor+0x18)!=area) { steer_fail=3; return 0; }
+    if (!read_memory(actor+0x3f0,&opcode,2) || opcode!=23) { steer_fail=4+opcode; return 0; }
+    if (!point_is_writable(actor+0x460)) { steer_fail=20; return 0; }
+    if (!pending_move(actor,&queued,&action)) { steer_fail=21; return 0; }
+    if (queued!=1) { steer_fail=22+queued; return 0; }
+    if (!point_is_writable(action+0x70)) { steer_fail=30; return 0; }
+    if (!read_memory(area+0x688,&width,2) || !read_memory(area+0x68c,&height,2)) { steer_fail=31; return 0; }
+    if (destination[0]<1 || destination[1]<1 || destination[0]>width || destination[1]>height) { steer_fail=32; return 0; }
+    memcpy((void *)(action+0x70),destination,8);
+    memcpy((void *)(actor+0x460),destination,8);
+    clear_pending_actions((void *)actor,0);
+    request_move_path((void *)actor,destination);
+    return 1;
+}
 static int selected_origin(uintptr_t game,uintptr_t area,uint32_t *id,int32_t *point) {
     int32_t count=0;
     if (!read_memory(game+0xa2b0,&count,4) || count<1 || count>6) return 0;
@@ -270,7 +295,8 @@ static int steering_selection(uintptr_t game,uint32_t *members) {
     }
     return count;
 }
-static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int focused,int extend) {
+static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int focused,int mode) {
+    int extend=mode==1, flow=mode==2;
     uintptr_t game=0,area=0,video=0; uint32_t id=UINT32_MAX; int32_t origin[2]; double remaining=-1;
     int issued=0;
     if ((focused || operation==11) && interaction_context(&game,&area,&video) && selected_origin(game,area,&id,origin)) {
@@ -338,7 +364,18 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                         if (index==0 && action!=23) continuing=0;
                     }
                 }
-                int lookahead=count>1 ? 300 : 220;
+                int lookahead;
+                if (flow) {
+                    /* Flow: the goal sits just ahead of the leader and grows with
+                     * stick deflection, so a half-tilt walks slowly and a full
+                     * tilt runs, and the route never points past a wall the way a
+                     * 220-unit waypoint does.
+                     */
+                    double magnitude=length/10000.0;
+                    if (magnitude>1) magnitude=1;
+                    lookahead=(int)(60.0+120.0*magnitude);
+                    if (count>1) lookahead=(int)(lookahead*1.35);
+                } else lookahead=count>1 ? 300 : 220;
                 steering_target[0]=origin[0]+(int32_t)(dx/length*lookahead);
                 steering_target[1]=origin[1]+(int32_t)(dy/length*(lookahead*0.75));
                 if (steering_target[0]>0 && steering_target[1]>0 && steering_target[0]<=32767 && steering_target[1]<=32767) {
@@ -350,7 +387,42 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                      * not again at every continuation waypoint.
                      */
                     if (!same_owner || run!=steering_run) prepare_group_run((void *)area);
-                    if (live_move) {
+                    if (flow) {
+                        /* Stick tracking, cheapest first:
+                         * 1. slide the live MoveToPoint of every member that has
+                         *    one - keeps the action, its elapsed ticks and route;
+                         * 2. otherwise re-point just that sprite's own move
+                         *    (CGameSprite::MoveToPoint), never the whole group;
+                         * 3. only if no sprite-level call is possible, fall back
+                         *    to one appended group order.
+                         */
+                        int retargeted=0, sprite_move=0;
+                        for (int index=0;index<member_count;++index) {
+                            uintptr_t actor=object_for_id(members[index]);
+                            if (!actor) continue;
+                            if (steer_live_move(actor,area,steering_target)) {
+                                if (!index) retargeted=1;
+                            } else if (request_move_path && point_is_writable(actor+0x460)) {
+                                /* No queued action handle: re-plan the sprite's
+                                 * own move straight through MoveToPoint. Applied
+                                 * per member so followers track the stick too.
+                                 */
+                                memcpy((void *)(actor+0x460),steering_target,8);
+                                request_move_path((void *)actor,steering_target);
+                                if (!index) sprite_move=1;
+                            }
+                        }
+                        if (!retargeted && !sprite_move) {
+                            for (int index=0;index<member_count;++index) {
+                                uintptr_t actor=object_for_id(members[index]);
+                                if (actor) clear_pending_actions((void *)actor,0);
+                            }
+                            controller_steering_active=1;
+                            group_move((void *)(game+0xa290),point,1,formation,UINT64_MAX);
+                            controller_steering_active=0;
+                        }
+                        log_runtime(12,205,retargeted*2+sprite_move,steer_fail);
+                    } else if (live_move) {
                         for (int index=0;index<member_count;++index) clear_pending_actions((void *)actors[index],0);
                     } else if (continuing) {
                         for (int index=1;index<member_count;++index) {
@@ -360,7 +432,7 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                             }
                         }
                     }
-                    if (!continuing && !live_move) {
+                    if (!flow && !continuing && !live_move) {
                         if (active_move) {
                             /* A turn/recovery replaces future orders while the
                              * current MoveToPoint remains active. Full group
@@ -371,23 +443,25 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                                 clear_pending_actions((void *)actors[index],0);
                         } else group_clear_actions((void *)(game+0xa290));
                     }
-                    controller_steering_active=1;
-                    group_move((void *)(game+0xa290),point,continuing || live_move,formation,UINT64_MAX);
-                    controller_steering_active=0;
-                    if (live_move) {
-                        for (int index=0;index<member_count;++index) {
-                            int32_t destination[2];
-                            if (retarget_active_move(actors[index],area,destination)) {
-                                if (!index) memcpy(steering_target,destination,8);
-                                log_runtime(12,203,index,1);
+                    if (!flow) {
+                        controller_steering_active=1;
+                        group_move((void *)(game+0xa290),point,continuing || live_move,formation,UINT64_MAX);
+                        controller_steering_active=0;
+                        if (live_move) {
+                            for (int index=0;index<member_count;++index) {
+                                int32_t destination[2];
+                                if (retarget_active_move(actors[index],area,destination)) {
+                                    if (!index) memcpy(steering_target,destination,8);
+                                    log_runtime(12,203,index,1);
+                                }
                             }
                         }
+                        log_runtime(12,201,live_move ? 2 : continuing,run);
                     }
                     log_runtime(operation,steering_target[0],steering_target[1],formation);
                     steering_area=area; steering_leader=id; steering_owned=1;
                     steering_run=run; steering_count=member_count;
                     if (member_count) memcpy(steering_members,members,member_count*4);
-                    log_runtime(12,201,live_move ? 2 : continuing,run);
                     issued=1;
                 }
             }
