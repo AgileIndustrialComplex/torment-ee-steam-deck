@@ -63,6 +63,7 @@
 #define LX_GROUP_CLEAR_ACTIONS_SIZE 331u
 
 /* CAIGroup::GroupSetTarget(CPoint,int,short,CPoint) */
+#define LX_HIGHLIGHT_ITEM_ADDR 0x5870d0u
 #define LX_GROUP_MOVE_ADDR 0x5ddc80u
 #define LX_GROUP_MOVE_SIZE 7331u
 

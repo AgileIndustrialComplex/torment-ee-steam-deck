@@ -280,8 +280,14 @@ nearby={{1,890,520,440,0x11,55}}; tick(); assert(pad.NearbyText()=='Open (A)')
 trace={}; tick(4096); pad.DispatchWorld(); assert(count('reset')==1 and count(15)==1)
 tick(0,100); assert(count(15)==1)
 tick(0,300); snapshot[5]=25000; trace={}; tick()
-assert(pad.nearby and count(1)==0, 'RS must not expose a free world cursor in controller mode')
-snapshot[5]=0; tick(0,800); assert(pad.nearby)
+assert(pad.nearby, 'RS aiming keeps the target tracked')
+-- With RS neutral the real mouse parks on the target so the engine draws its
+-- own hover highlight around it; the controller's world cursor stays hidden.
+snapshot[5]=0; trace={}; tick(0,800); assert(pad.nearby)
+-- The target is highlighted with the engine's marker box (op 22), fed from
+-- the nearby target's screen point (520,440 in the mock).
+local box=nil; for _,event in ipairs(trace) do if event[1]==22 then box=event end end
+assert(box and box[2]==520 and box[3]==440, 'the current target gets the marker box')
 menus.WORLD_CONTEXT_BAR=true; tick(); assert(not pad.nearby)
 menus.WORLD_CONTEXT_BAR=nil; snapshot[14]=0; tick(); assert(not pad.nearby and not pad.pendingTarget)
 -- Spell selection includes allies and preserves the spell's engine targeting

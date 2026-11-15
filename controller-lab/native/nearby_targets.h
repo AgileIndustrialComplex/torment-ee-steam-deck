@@ -265,6 +265,19 @@ static int retarget_active_move(uintptr_t actor,uintptr_t area,int32_t *destinat
  * no animation restart) and still replans through the stock path request.
  */
 static int steer_fail;
+/* CGameAnimationType::SetRunning(int,int) sits at vtable slot +0x1f8 of the
+ * sprite's animation object (CGameArea::SetupPartyRunning calls it exactly
+ * there). The engine only applies the party run state to the SELECTED group,
+ * so followers need it set explicitly or they walk while the leader runs. */
+static void sprite_set_running(uintptr_t actor, int running) {
+    uintptr_t anim = read_pointer(actor+0x3938);
+    if (!anim) return;
+    uintptr_t vtable = read_pointer(anim);
+    if (!vtable) return;
+    void (*set_running)(void *, int, int) = (void (*)(void *, int, int))read_pointer(vtable+0x1f8);
+    if (!set_running || !image_contains((uintptr_t)set_running)) return;
+    set_running((void *)anim, running, running);
+}
 static int steer_live_move(uintptr_t actor,uintptr_t area,const int32_t *destination) {
     uint16_t opcode=0; int32_t queued=0; uintptr_t action=0;
     int16_t width=0,height=0;
@@ -302,13 +315,6 @@ static int steering_selection(uintptr_t game,uint32_t *members) {
         node=read_pointer(node);
     }
     return count;
-}
-/* The leader is the first selected slot: the Nameless One when he is selected.
- * Stick movement drives him alone; companions reach him through the engine's
- * own follow behaviour, which is what the party formation relies on. */
-static int steering_leader_id(uintptr_t game,uint32_t *id) {
-    uintptr_t head=read_pointer(game+0xa2a0);
-    return head && read_memory(head+0x10,id,4);
 }
 static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int focused,int mode) {
     int extend=mode==1, flow=mode==2;
@@ -401,12 +407,32 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                      */
                     if (!same_owner || run!=steering_run) prepare_group_run((void *)area);
                     if (flow) {
-                        /* Leader-only: the stick drives the first selected
-                         * sprite and nothing else. Companions follow through
-                         * the engine's own party-follow, which reacts to the
-                         * leader's movement instead of our orders. */
+                        /* The stick always drives the Nameless One (party
+                         * slot 0), whatever the player has selected, and every
+                         * other party member follows him explicitly: the
+                         * engine's own follow only fires through group orders,
+                         * which the party only receives when fully selected.
+                         */
                         uint32_t leader_id=0;
-                        if (!steering_leader_id(game,&leader_id)) goto remaining_distance;
+                        int16_t party_count=0;
+                        int32_t leader_origin[2]={0,0};
+                        int have_leader = read_memory(game+0xa218,&party_count,2)
+                            && party_count>=1 && party_count<=6
+                            && read_memory(game+0xa200,&leader_id,4)
+                            && leader_id && leader_id!=UINT32_MAX;
+                        if (have_leader) {
+                            uintptr_t actor=object_for_id(leader_id);
+                            if (actor && read_pointer(actor+0x18)==area
+                                && read_memory(actor+0xc,leader_origin,8)) {
+                                id=leader_id;
+                                origin[0]=leader_origin[0]; origin[1]=leader_origin[1];
+                                steering_target[0]=origin[0]+(int32_t)(dx/length*lookahead);
+                                steering_target[1]=origin[1]+(int32_t)(dy/length*(lookahead*0.75));
+                                if (!(steering_target[0]>0 && steering_target[1]>0
+                                    && steering_target[0]<=32767 && steering_target[1]<=32767)) goto remaining_distance;
+                            } else have_leader=0;
+                        }
+                        if (!have_leader) goto remaining_distance;
                         {
                         /* Progress guard first: what did the leader actually do
                          * since the last dispatch? */
@@ -468,6 +494,38 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                             }
                         }
                         log_runtime(12,205,retargeted*2+sprite_move,steer_fail);
+                        /* Companions: follow the Nameless One explicitly, at any
+                         * selection state. Each member beyond slot 0 keeps one
+                         * live move whose destination is the leader's current
+                         * position; close enough means left alone, so nobody
+                         * twitches at his heels.
+                         */
+                        for (int slot=1;slot<party_count;++slot) {
+                            uint32_t cid=0;
+                            uintptr_t actor=0;
+                            int32_t cpos[2]={0,0};
+                            fprintf(stderr,"FDBG2 slot=%d party=%d\n",slot,party_count);
+                            if (!read_memory(game+0xa200+(size_t)slot*4,&cid,4)
+                                || !cid || cid==UINT32_MAX || cid==leader_id) continue;
+                            actor=object_for_id(cid);
+                            fprintf(stderr,"FDBG2 cid=%u actor=%ld area_ok=%d\n",cid,(long)actor,read_pointer(actor+0x18)==(uintptr_t)area);
+                            if (!actor || read_pointer(actor+0x18)!=area) continue;
+                            if (!read_memory(actor+0xc,cpos,8)) continue;
+                            int32_t sx=origin[0]-cpos[0], sy=origin[1]-cpos[1];
+                            int32_t dist=(sx<0?-sx:sx)+(sy<0?-sy:sy);
+                            if (dist<=90) continue;
+                            int32_t goal[2]={origin[0],origin[1]};
+                            sprite_set_running(actor, run);
+                            if (steer_live_move(actor,area,goal)) {
+                                log_runtime(12,209,slot,dist);
+                                log_runtime(12,213,cpos[0],cpos[1]);
+                            } else if (request_move_path && point_is_writable(actor+0x460)) {
+                                memcpy((void *)(actor+0x460),goal,8);
+                                request_move_path((void *)actor,goal);
+                                log_runtime(12,209,slot,dist);
+                                log_runtime(12,213,cpos[0],cpos[1]);
+                            }
+                        }
                         }
                     } else if (live_move) {
                         for (int index=0;index<member_count;++index) clear_pending_actions((void *)actors[index],0);

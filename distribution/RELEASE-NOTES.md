@@ -1,4 +1,4 @@
-# PST:EE Xbox Controller Mod 0.3.5 - preview
+# PST:EE Xbox Controller Mod 0.3.6 - preview
 
 Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 
@@ -19,6 +19,21 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 - A skips active movies; D-pad selects confirmation buttons, with Quit starting on No.
 - Real mouse click returns to PC mode; a controller button/trigger reactivates Xbox.
 - No top PC/controller status text. Back/View opens Options; Start pauses.
+
+## Changes in 0.3.6
+
+- **Companions follow the Nameless One at any selection.** The engine's own
+  party-follow only engages through group orders, which the party receives
+  only when fully selected - with one character selected, companions stood
+  still. Followers now get explicit follow orders toward the protagonist's
+  position whenever they fall behind, and their walk/run state is set to match
+  his (the engine applies that only to the selected group, so followers used
+  to walk while the leader ran and never caught up). Verified in play: with
+  only the Nameless One selected, Morte trailed at his running pace for the
+  whole move and closed in after stops.
+- **The current target is highlighted.** The entity or container A would act
+  on now carries the engine's own selection-marker box, drawn from the UI
+  render pass each frame, so it is always visible what is being targeted.
 
 ## Changes in 0.3.5
 
@@ -187,7 +202,7 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
   save copying. Original saves are not deleted or imported automatically.
 - Gameplay and native binaries are unchanged from 0.1.29.
 
-Use **PSTEE-Xbox-Controller-v0.3.5-preview.zip** to install (Windows) or the
+Use **PSTEE-Xbox-Controller-v0.3.6-preview.zip** to install (Windows) or the
 Deck AppImage / native preview ZIP (Linux). The source ZIP is for
 GitHub/building. Close the game, uninstall an older managed version, then install.
 Launch through Play-Controller-Mod.cmd or ControllerLab.exe. Disable Steam Input.

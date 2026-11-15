@@ -122,6 +122,10 @@ static uint16_t (*request_move_path)(void *, const int32_t *);
 static void (*set_world_view)(void *, uint64_t, int16_t);
 static int (*original_process_events)(void *);
 static int (*original_set_pointer)(void *, void *, uint64_t, unsigned char, int);
+/* highlightItem(SDL_Rect): the engine's own selection-marker draw call. The
+ * Lua tick runs inside the UI render pass, so a rect drawn from there lands on
+ * the current frame. SDL_Rect travels by value as two packed 8-byte words. */
+static void (*highlight_item)(uint64_t, uint64_t);
 static int cursor_hidden_by_mod;
 static int cursor_visibility_before_drive = 1;
 static void *desired_video;
@@ -1308,6 +1312,21 @@ static int dispatch(lua_State *state) {
         return 1;
     }
     if (operation == 19) { push_number(state, controller_camera_follow(a, focused)); return 1; }
+    if (operation == 22) {
+        /* a = target screen x, b = target screen y, c = kind. The point is the
+         * object's base; box it upward like the engine's own markers do. */
+        if (highlight_item) {
+            int x = (int)a, y = (int)b;
+            int height = (c == 0x31) ? 130 : 90;
+            int width = (c == 0x21 || c == 0x11) ? 130 : 100;
+            uint64_t xy = (uint64_t)(uint32_t)(x - width / 2)
+                | ((uint64_t)(uint32_t)(y - height + 12) << 32);
+            uint64_t wh = (uint64_t)(uint32_t)width | ((uint64_t)(uint32_t)height << 32);
+            highlight_item(xy, wh);
+        }
+        push_number(state, 1);
+        return 1;
+    }
     if (operation == 20) {
         /* Haptics through Steam Input: a = left, b = right intensity. */
         int fired = 0;
@@ -1809,6 +1828,7 @@ static int initialize_bindings(void) {
     lua_setglobal_fn = (void (*)(void *, const char *))(engine + LX_LUA_SETGLOBAL_ADDR);
     group_clear_actions = (void (*)(void *))(engine + LX_GROUP_CLEAR_ACTIONS_ADDR);
     group_move = (void (*)(void *, uint64_t, int, uint16_t, uint64_t))(engine + LX_GROUP_MOVE_ADDR);
+    highlight_item = (void (*)(uint64_t, uint64_t))(engine + LX_HIGHLIGHT_ITEM_ADDR);
     prepare_group_run = (void (*)(void *))(engine + LX_PREPARE_GROUP_RUN_ADDR);
     clear_pending_actions = (void (*)(void *, int))(engine + LX_CLEAR_PENDING_ACTIONS_ADDR);
     request_move_path = (uint16_t (*)(void *, const int32_t *))(engine + LX_REQUEST_MOVE_PATH_ADDR);

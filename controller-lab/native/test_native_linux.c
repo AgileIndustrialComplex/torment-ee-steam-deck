@@ -426,8 +426,34 @@ int main(void) {
         assert(group_clear_count == before_group_clears + 1);
         request_move_path = test_path_request;
         result_count = 0; dispatch_steering(NULL, 11, 0, 0, 1, 0);
+        /* Companions follow the protagonist explicitly, at any selection. A far
+         * follower gets exactly one order per dispatch toward the leader's
+         * current position; a close one is left alone. */
+        if (members == 2) {
+            /* The friend's row was re-generated to 9 earlier, so the party
+             * slot must carry the live id 0x10009 for object_for_id to resolve
+             * it, and the earlier single-character tests reset the party count
+             * at 0xa218 back to 1. */
+            { int16_t two = 2; put(game_model, 0xa218, &two, 2); }
+            integer(game_model, 0xa204, 0x10009);
+            integer(leader, 0xc, 1000); integer(leader, 0x10, 1000);
+            integer(friend_actor, 0x3f0, 23); integer(friend_actor, 0x3ec, 77);
+            integer(friend_actor, 0x348, 1);
+            integer(friend_actor, 0xc, 500); integer(friend_actor, 0x10, 1000);
+            int follow_paths = path_requests;
+            result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
+            assert(results[1] == 1);
+            assert(path_requests == follow_paths + 2); /* leader + far follower */
+            { int32_t point[2]; memcpy(point, friend_actor + 0x460, 8);
+              assert(point[0] == 1000 && point[1] == 1000); }
+            integer(friend_actor, 0xc, 960); integer(friend_actor, 0x10, 1000);
+            int close_paths = path_requests;
+            result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
+            assert(results[1] == 1);
+            assert(path_requests == close_paths + 1); /* leader only: close follower untouched */
+        }
     }
-    puts("PASS: flow steering keeps one long goal, leader-only drive with companions untouched, slides the live destination, no per-tick replan or clear");
+    puts("PASS: flow steering keeps one long goal, drives the protagonist with explicit companion follow, slides the live destination, no per-tick replan or clear");
     /* A wrong class or invalid destination cannot trigger a memory update. */
     model_members = 1; integer(game_model, 0xa2b0, 1); ptr(head, 0, NULL);
     expected_run = 0; integer(game_model, 0xb9c0, 0); integer(leader, 0xc, 1000);

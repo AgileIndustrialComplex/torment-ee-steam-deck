@@ -1,6 +1,6 @@
 -- PST:EE Xbox prototype. Native input stays inside the foreground game process.
 PSTController = {
-    version = '0.3.5', status = 'Starting Xbox mod', error = nil,
+    version = '0.3.6', status = 'Starting Xbox mod', error = nil,
     buttons = 0, lastTick = 0, lastMove = 0, repeatAt = {},
     armed = false, radial = false, radialIndex = 1, dialogIndex = 1,
     drive = true, moving = false, pausedForRadial = false,
@@ -1193,6 +1193,14 @@ function pad.Step()
         and game:GetState()==0 and not worldScreen:CheckIfPaused()
         and not pad.activation and not pad.pendingWorld and now>=(pad.interactionHoldUntil or 0)
         and now>=(pad.manualAimUntil or 0),width,height,playerX,playerY,now)
+    -- Highlight the current target with the engine's own selection-marker box
+    -- so it is always visible what A will act on. The tick runs inside the UI
+    -- render pass, so the box lands on the current frame.
+    if pad.nearby and inWorld and pad.drive and not navigatingWorldMenu and not editing
+        and not pad.targetMode and not pad.activation and not pad.pendingWorld then
+        pad.native(22, math.floor(pad.nearby.x + 0.5), math.floor(pad.nearby.y + 0.5),
+            pad.nearby.kind or 0)
+    end
     if pad.targetMode and not pad.activation then targetNavigation(now,lx,ly,lm,width,height) end
     if magnitude>0 and pad.driveCursorHidden then stopMovement(); mx,my=pad.cursorX,pad.cursorY end
     if magnitude > 0 then
