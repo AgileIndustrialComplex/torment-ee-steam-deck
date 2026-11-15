@@ -303,6 +303,13 @@ static int steering_selection(uintptr_t game,uint32_t *members) {
     }
     return count;
 }
+/* The leader is the first selected slot: the Nameless One when he is selected.
+ * Stick movement drives him alone; companions reach him through the engine's
+ * own follow behaviour, which is what the party formation relies on. */
+static int steering_leader_id(uintptr_t game,uint32_t *id) {
+    uintptr_t head=read_pointer(game+0xa2a0);
+    return head && read_memory(head+0x10,id,4);
+}
 static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int focused,int mode) {
     int extend=mode==1, flow=mode==2;
     uintptr_t game=0,area=0,video=0; uint32_t id=UINT32_MAX; int32_t origin[2]; double remaining=-1;
@@ -394,6 +401,13 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                      */
                     if (!same_owner || run!=steering_run) prepare_group_run((void *)area);
                     if (flow) {
+                        /* Leader-only: the stick drives the first selected
+                         * sprite and nothing else. Companions follow through
+                         * the engine's own party-follow, which reacts to the
+                         * leader's movement instead of our orders. */
+                        uint32_t leader_id=0;
+                        if (!steering_leader_id(game,&leader_id)) goto remaining_distance;
+                        {
                         /* Progress guard first: what did the leader actually do
                          * since the last dispatch? */
                         unsigned now_tick = get_ticks ? get_ticks() : 0;
@@ -430,31 +444,31 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                          *    to one appended group order.
                          */
                         int retargeted=0, sprite_move=0;
-                        for (int index=0;index<member_count;++index) {
-                            uintptr_t actor=object_for_id(members[index]);
-                            if (!actor) continue;
+                        {
+                            uintptr_t actor=object_for_id(leader_id);
+                            if (!actor) goto remaining_distance;
                             if (steer_live_move(actor,area,steering_target)) {
-                                if (!index) retargeted=1;
+                                retargeted=1;
                             } else if (request_move_path && point_is_writable(actor+0x460)) {
-                                /* No queued action handle: re-plan the sprite's
-                                 * own move straight through MoveToPoint. Applied
-                                 * per member so followers track the stick too.
+                                /* No queued action handle: re-plan the leader's
+                                 * own move straight through MoveToPoint.
                                  */
                                 memcpy((void *)(actor+0x460),steering_target,8);
                                 request_move_path((void *)actor,steering_target);
-                                if (!index) sprite_move=1;
+                                sprite_move=1;
                             }
-                        }
-                        if (!retargeted && !sprite_move) {
-                            for (int index=0;index<member_count;++index) {
-                                uintptr_t actor=object_for_id(members[index]);
-                                if (actor) clear_pending_actions((void *)actor,0);
+                            if (!retargeted && !sprite_move) {
+                                /* Last resort: one appended group order, which
+                                 * the engine resolves as leader + followers.
+                                 */
+                                if (group_clear_actions) group_clear_actions((void *)(game+0xa290));
+                                controller_steering_active=1;
+                                group_move((void *)(game+0xa290),point,1,formation,UINT64_MAX);
+                                controller_steering_active=0;
                             }
-                            controller_steering_active=1;
-                            group_move((void *)(game+0xa290),point,1,formation,UINT64_MAX);
-                            controller_steering_active=0;
                         }
                         log_runtime(12,205,retargeted*2+sprite_move,steer_fail);
+                        }
                     } else if (live_move) {
                         for (int index=0;index<member_count;++index) clear_pending_actions((void *)actors[index],0);
                     } else if (continuing) {

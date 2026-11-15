@@ -1,6 +1,6 @@
 -- PST:EE Xbox prototype. Native input stays inside the foreground game process.
 PSTController = {
-    version = '0.3.4', status = 'Starting Xbox mod', error = nil,
+    version = '0.3.5', status = 'Starting Xbox mod', error = nil,
     buttons = 0, lastTick = 0, lastMove = 0, repeatAt = {},
     armed = false, radial = false, radialIndex = 1, dialogIndex = 1,
     drive = true, moving = false, pausedForRadial = false,
@@ -935,10 +935,17 @@ function pad.Step()
         stopMovement()
         inWorld, inDialog = false, false
     end
-    -- Controller walk/run is a persistent choice, rather than a temporary
-    -- AlwaysRun=true override around each route. Dialogs cannot change it.
+    -- Walk or run follows stick deflection: a slight tilt walks, pushing
+    -- through runs. Hysteresis keeps the boundary from flapping. Dialogs and
+    -- menus never touch the setting.
     if pad.runEnabled==nil then pad.runEnabled=runSetting() end
-    if inWorld and runSetting()~=pad.runEnabled then game:SetAlwaysRun(pad.runEnabled) end
+    local stickRun = inWorld and pad.drive and not navigatingWorldMenu
+        and (lm >= 0.62 or (pad.runEnabled and lm > 0.45))
+    if stickRun~=nil and stickRun~=pad.runEnabled and inWorld then
+        pad.runEnabled=stickRun
+        game:SetAlwaysRun(stickRun)
+        pad.native(12,208,stickRun and 1 or 0,math.floor(lm*100))
+    end
     local talking = inWorld and game:GetState()==2 and game:GetIconIndex()==18
     local navigatingWorldMenu = inContext or navigationMenu()~=nil
         or menu('WORLD_FORMATION') or menu('WORLD_QUICKLOOT') or menu('WORLD_CONTAINER')
@@ -1057,11 +1064,12 @@ function pad.Step()
         if dx~=0 or dy~=0 then pad.native(18,dx,dy) end
     else pad.cameraRemainderX,pad.cameraRemainderY=nil,nil end
 
+    -- L3 is no longer the walk/run switch: speed follows stick deflection.
+    -- The release/neutral frame clears the run state so the next hold starts
+    -- from the deflection, not the previous run.
     if edge(64) and inWorld then
-        pad.runEnabled=not pad.runEnabled; game:SetAlwaysRun(pad.runEnabled)
-        pad.moveDirectionX,pad.moveDirectionY=nil,nil
         resetSteeringFilter()
-        pad.native(12,311,pad.runEnabled and 1 or 0,0)
+        pad.native(12,311,runSetting() and 1 or 0,0)
     end
     if edge(128) and inWorld then
         stopMovement(); pad.pendingWorld='all'; pad.pendingWorldAt=now; key(13)
@@ -1113,8 +1121,35 @@ function pad.Step()
             -- selection then survives cursor warps and stray mouse movement.
             glowTest = row
             worldPlayerDialogSelection = row
-            chatboxScrollToBottom = 0
         end
+        -- A2: left stick scrolls the conversation. The chatbox follows new text
+        -- by itself (chatboxScrollToBottom); manual scrolling switches it to the
+        -- engine's "defer" state for that frame and moves the offset one step.
+        if not pad.chatScrollWrapped and type(chatboxScroll) == 'function' then
+            pad.chatScrollWrapped = true
+            local original = chatboxScroll
+            chatboxScroll = function(top, height, contentHeight)
+                pad.chatScrollInfo = {top, height, contentHeight}
+                local request = pad.chatScrollRequest
+                if request then
+                    pad.chatScrollRequest = nil
+                    if type(top) == 'number' and type(height) == 'number'
+                        and type(contentHeight) == 'number' and contentHeight > height then
+                        local floor = height - contentHeight
+                        return math.max(floor, math.min(0, top + request))
+                    end
+                end
+                return original(top, height, contentHeight)
+            end
+        end
+        if math.abs(ly) > 0.4 and not editing then
+            -- Down on the stick shows later text, up shows earlier text.
+            if now >= (pad.chatScrollNext or 0) then
+                pad.chatScrollNext = now + 90
+                pad.chatScrollRequest = ly > 0 and -70 or 70
+                if chatboxScrollToBottom ~= 0 then chatboxScrollToBottom = 0 end
+            end
+        else pad.chatScrollNext = nil end
         if edge(4096) and not pad.pendingDialog then
             if dialogViewMode or #(dialogOverflowTable or {}) > 0 then
                 -- Scrolled transcript or review mode: the stock Continue action
@@ -1143,7 +1178,7 @@ function pad.Step()
     end
 
     local cx, cy, magnitude = rx, ry, rm
-    if not inWorld or not pad.drive or (navigatingWorldMenu and not inContext) then
+    if (not inWorld and not inDialog) or not pad.drive or (navigatingWorldMenu and not inContext) then
         if lm > rm then cx, cy, magnitude = lx, ly, lm end
     end
     -- In the action bar LS selects slots; RS retains optional fine cursor aim.
@@ -1248,7 +1283,7 @@ function pad.Step()
     elseif pad.activation then pad.status='Xbox | Activating selected target...  B: cancel'
     elseif pad.targetMode then pad.status='Xbox | LS / D-pad: target  A: '..pad.targetMode..'  B: cancel'
     elseif inWorld then
-        pad.status = 'Xbox | LS: move  RS: camera  L3: '..(pad.runEnabled and 'RUN' or 'WALK')..'  A: interact  Y: actions  D-up: Attack  D-down: Ability  R3: all  RT+RS: zoom'
+        pad.status = 'Xbox | LS: move (tilt=walk, push=run)  RS: camera  A: interact  Y: actions  D-up: Attack  D-down: Ability  R3: all  RT+RS: zoom'
         if pad.drive and positionValid == 0 then pad.status = pad.status .. ' | position unavailable' end
     elseif inJournal then pad.status = 'Xbox | D-pad left/right: tab  up/down: entries / scroll  X: filter  B: close'
     elseif activeNavigationMenu=='INVENTORY' then pad.status='Xbox | D-pad: slots  A: move  X: inspect  Y: split stack  B: back'

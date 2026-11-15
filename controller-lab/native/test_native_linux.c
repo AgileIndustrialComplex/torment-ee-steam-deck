@@ -378,14 +378,25 @@ int main(void) {
             result_count = 0; dispatch_steering(NULL, 9, dx, 0, 1, 2);
             assert(results[1] == 1);
             assert(group_move_count == flow_moves && group_clear_count == flow_clears);
-            assert(path_requests == flow_paths + (tick + 1) * members);
-            for (int index = 0; index < members; ++index) {
+            /* Leader-only: exactly one path request per tick, and only the
+             * leader's destination moves. */
+            assert(path_requests == flow_paths + tick + 1);
+            {
                 int32_t point[2], queued = 0; uint16_t opcode = 0;
-                memcpy(point, model_actors[index] + 0x460, 8);
-                memcpy(&queued, model_actors[index] + 0x348, 4);
-                memcpy(&opcode, model_actors[index] + 0x3f0, 2);
+                memcpy(point, model_actors[0] + 0x460, 8);
+                memcpy(&queued, model_actors[0] + 0x348, 4);
+                memcpy(&opcode, model_actors[0] + 0x3f0, 2);
                 assert(point[0] == 1000 + tick * 20 + lookahead && point[1] == 1000);
                 assert(queued == 0 && opcode == 23);
+            }
+            if (members > 1) {
+                /* The follower keeps whatever its fixture set: flow must not
+                 * touch a companion at all. Steer_live_move's test stub rewrote
+                 * the point only for actors whose live move was slid, so the
+                 * follower's destination is the model_factory's, not ours. */
+                int32_t follower[2]; memcpy(follower, model_actors[1] + 0x460, 8);
+                assert(follower[0] != 1000 + tick * 20 + lookahead);
+                assert(path_requests == flow_paths + tick + 1);
             }
         }
         /* No live move left: the leader's own sprite move is re-pointed instead
@@ -397,9 +408,9 @@ int main(void) {
         result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
         assert(results[1] == 1);
         assert(group_move_count == flow_moves && group_clear_count == flow_clears);
-        assert(path_requests == before_sprite + members);
-        for (int index = 0; index < members; ++index) {
-            int32_t point[2]; memcpy(point, model_actors[index] + 0x460, 8);
+        assert(path_requests == before_sprite + 1);
+        {
+            int32_t point[2]; memcpy(point, model_actors[0] + 0x460, 8);
             assert(point[0] == leader_x + fallback_lookahead && point[1] == 1000);
         }
         /* With no path request available at all the group order is the last
@@ -409,12 +420,14 @@ int main(void) {
          * stall the guard exists to catch. */
         leader_x += 30; integer(leader, 0xc, leader_x);
         expected_target_x = leader_x + fallback_lookahead; expected_target_y = 1000; expected_append = 1;
+        int before_group_clears = group_clear_count;
         result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
         assert(results[1] == 1 && group_move_count == flow_moves + 1);
+        assert(group_clear_count == before_group_clears + 1);
         request_move_path = test_path_request;
         result_count = 0; dispatch_steering(NULL, 11, 0, 0, 1, 0);
     }
-    puts("PASS: flow steering keeps one long goal, slides the live destination, no per-tick replan or clear; sprite fallback then one group order");
+    puts("PASS: flow steering keeps one long goal, leader-only drive with companions untouched, slides the live destination, no per-tick replan or clear");
     /* A wrong class or invalid destination cannot trigger a memory update. */
     model_members = 1; integer(game_model, 0xa2b0, 1); ptr(head, 0, NULL);
     expected_run = 0; integer(game_model, 0xb9c0, 0); integer(leader, 0xc, 1000);

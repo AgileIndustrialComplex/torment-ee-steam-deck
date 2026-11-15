@@ -1,4 +1,4 @@
-# PST:EE Xbox Controller Mod 0.3.4 - preview
+# PST:EE Xbox Controller Mod 0.3.5 - preview
 
 Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 
@@ -19,6 +19,22 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 - A skips active movies; D-pad selects confirmation buttons, with Quit starting on No.
 - Real mouse click returns to PC mode; a controller button/trigger reactivates Xbox.
 - No top PC/controller status text. Back/View opens Options; Start pauses.
+
+## Changes in 0.3.5
+
+- **Conversation follows the chat.** The mod no longer forces the chatbox to
+  its "locked at bottom" state while an answer is selected: new lines scroll
+  into view on their own again, and advancing with A lands on the latest text.
+- **Left stick scrolls the conversation.** In dialogue, pushing LS up/down moves
+  through the history at a readable pace; releasing it stops where you are. RS
+  stays the free cursor.
+- **Walk or run follows the stick.** A slight tilt walks, pushing through runs
+  (with hysteresis so the boundary does not flap). L3 no longer toggles a
+  persistent walk/run mode.
+- **The stick moves the Nameless One, companions follow him.** Flow steering
+  now drives only the first selected sprite - the engine's own party-follow
+  moves everyone else, so the party stops clumping at doorframes when one
+  character clips a corner.
 
 ## Changes in 0.3.4
 
@@ -171,7 +187,7 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
   save copying. Original saves are not deleted or imported automatically.
 - Gameplay and native binaries are unchanged from 0.1.29.
 
-Use **PSTEE-Xbox-Controller-v0.3.4-preview.zip** to install (Windows) or the
+Use **PSTEE-Xbox-Controller-v0.3.5-preview.zip** to install (Windows) or the
 Deck AppImage / native preview ZIP (Linux). The source ZIP is for
 GitHub/building. Close the game, uninstall an older managed version, then install.
 Launch through Play-Controller-Mod.cmd or ControllerLab.exe. Disable Steam Input.

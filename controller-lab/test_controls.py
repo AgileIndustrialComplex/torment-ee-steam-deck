@@ -129,7 +129,8 @@ tick(); tick(8192); assert(trace[#trace][1] == 3 and trace[#trace][2] == 27)
 -- Numeric zero must allow gameplay; camera follow precedes movement.
 tick(); worldActive = true; snapshot[3] = 25000; trace = {}
 tick(); tick(); assert(count(9) >= 1 and locked, 'left stick should steer in world coordinates')
-assert(not alwaysRun, 'stick movement must retain the chosen WALK setting')
+-- snapshot[3]=25000 is a full tilt, which now legitimately selects RUN.
+assert(alwaysRun, 'a full stick tilt must select RUN')
 local function lastSteering()
     for index=#trace,1,-1 do if trace[index][1]==9 then return trace[index] end end
 end
@@ -473,22 +474,31 @@ end
 menus={}; worldActive=true; paused=false; locked=false; gameState=0; gameIcon=0
 snapshot[3]=0; snapshot[4]=0; snapshot[5]=0; snapshot[6]=0; snapshot[7]=0; snapshot[8]=0; snapshot[14]=1
 pad.controllerActive=true; pad.armed=true; pad.runEnabled=false; alwaysRun=false; tick()
-trace={}; tick(64); assert(alwaysRun and pad.runEnabled and count('all')==0)
-tick(64); assert(count('run')==1,'holding L3 must not repeat the toggle')
-tick(); snapshot[3]=25000; tick(); tick(); assert(alwaysRun and pad.nativeDriving)
-snapshot[3]=0; tick(); assert(alwaysRun,'stick release must retain RUN')
-tick(64); assert(not alwaysRun and not pad.runEnabled)
+-- Speed follows stick deflection: a slight tilt walks, pushing through runs.
+snapshot[3]=9000; trace={}; tick(); tick()
+assert(not alwaysRun and pad.nativeDriving,'a slight tilt walks')
+snapshot[3]=30000; tick(0,25)
+assert(alwaysRun and pad.runEnabled,'pushing through runs')
+snapshot[3]=0; tick(); tick()
 tick(); snapshot[3]=25000; trace={}; tick(); tick()
-assert(not alwaysRun and count('run')==0,'WALK must never force AlwaysRun on')
+assert(alwaysRun and pad.nativeDriving,'a full tilt still runs')
+-- Hysteresis: easing off stays a run until the stick falls well below the run threshold.
+snapshot[3]=18000; tick(0,25); assert(alwaysRun and pad.runEnabled,'easing off stays a run')
+snapshot[3]=9000; tick(0,25); assert(not alwaysRun and not pad.runEnabled,'a light tilt drops back to walking')
+snapshot[3]=0; tick()
+tick(); snapshot[3]=9000; trace={}; tick(); tick()
+assert(not alwaysRun and count('run')==0,'walking must never force AlwaysRun on')
 snapshot[3]=0; tick(); trace={}; tick(128); pad.DispatchWorld()
 assert(count('all')==1 and not alwaysRun,'R3 retains Select all and cannot change run')
 tick(); pad.pendingWorld='talk'; pad.DispatchWorld(); menus.WORLD_DIALOG=true
-alwaysRun=true; tick(); assert(alwaysRun,'do not override an active scripted dialogue')
-menus.WORLD_DIALOG=nil; gameState=0; gameIcon=0; tick()
-assert(not alwaysRun and not pad.runEnabled,'dialogue return must restore the chosen WALK setting')
+alwaysRun=true; pad.runEnabled=true; tick(); assert(alwaysRun,'do not override an active scripted dialogue')
+menus.WORLD_DIALOG=nil; gameState=0; gameIcon=0; snapshot[3]=0; tick()
+tick()
+assert(not pad.runEnabled,'dialogue return must leave the deflection walk state')
 -- Relinquishing the controller after a real click preserves the PC order,
 -- selection/aim, mouse position and run setting. Drift cannot reactivate it.
-snapshot[3]=25000; tick(); tick(); assert(pad.nativeDriving)
+snapshot[3]=25000; pad.runEnabled=false; alwaysRun=false; tick()
+tick(); assert(pad.nativeDriving and alwaysRun,'full tilt re-selects RUN for the drive')
 gameState=2; gameIcon=12; snapshot[19]=snapshot[19]+1; trace={}; tick()
 assert(not pad.controllerActive and not pad.nativeDriving and not pad.worldCursorHidden)
 assert(count('stop')==0 and count(1)==0,'handoff must not cancel the PC order or warp its mouse')
@@ -610,7 +620,9 @@ for members=1,2 do for _,running in ipairs({false,true}) do for _,base in ipairs
   assert(dot>0.996,'flow refreshes must retain the filtered heading under jitter')
   assert(command[4]==2,'every refresh must request flow mode')
  end
- assert(pad.nativeDriving and pad.moving and pad.runEnabled==running)
+ -- runEnabled now follows deflection (25000 = full tilt = RUN), so with
+ -- alwaysRun forced to `running`, only the engine setting is asserted here.
+ assert(pad.nativeDriving and pad.moving)
  -- Near arrival keeps tracking the stick instead of appending queued legs.
  routeRemaining=50
  for n=1,12 do angle(base+(n%2==0 and 16 or -16)); snapshot[15]=snapshot[15]+30; snapshot[16]=snapshot[16]+30; tick() end
