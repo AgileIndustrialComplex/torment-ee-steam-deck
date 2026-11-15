@@ -473,6 +473,12 @@ static void loader_note(const char *message);
 static int direct_fd = -1;
 static int direct_abs_min[8], direct_abs_max[8];
 static unsigned direct_buttons;
+/* Capability flags for the opened evdev device. Pads disagree about how a
+ * D-pad is reported: some use BTN_DPAD_*, some an ABS_HAT0X/Y pair, some both.
+ * A device that advertises neither must fall back to SDL for those four bits,
+ * otherwise the D-pad is silently dead (seen on real Deck hardware). */
+static int direct_has_dpad_buttons, direct_has_hat;
+static int direct_hat_min[2], direct_hat_max[2], direct_hat_neutral[2];
 static short direct_lx, direct_ly, direct_rx, direct_ry;
 static unsigned char direct_lt, direct_rt;
 static unsigned direct_events_seen;
@@ -547,6 +553,25 @@ static int direct_open_prepare(int fd) {
     direct_abs_range(fd, ABS_RX, &direct_abs_min[3], &direct_abs_max[3]);
     direct_abs_range(fd, ABS_RY, &direct_abs_min[4], &direct_abs_max[4]);
     direct_abs_range(fd, ABS_RZ, &direct_abs_min[5], &direct_abs_max[5]);
+    direct_has_dpad_buttons = (keybits[BTN_DPAD_UP / 8] >> (BTN_DPAD_UP % 8)) & 1;
+    direct_has_hat = ((absbits[ABS_HAT0X / 8] >> (ABS_HAT0X % 8)) & 1)
+        && ((absbits[ABS_HAT0Y / 8] >> (ABS_HAT0Y % 8)) & 1);
+    if (direct_has_hat) {
+        direct_abs_range(fd, ABS_HAT0X, &direct_hat_min[0], &direct_hat_max[0]);
+        direct_abs_range(fd, ABS_HAT0Y, &direct_hat_min[1], &direct_hat_max[1]);
+        if (direct_hat_max[0] <= direct_hat_min[0]) { direct_hat_min[0] = -1; direct_hat_max[0] = 1; }
+        if (direct_hat_max[1] <= direct_hat_min[1]) { direct_hat_min[1] = -1; direct_hat_max[1] = 1; }
+        for (int axis = 0; axis < 2; ++axis) {
+            direct_hat_neutral[axis] = (direct_hat_min[axis] <= 0 && direct_hat_max[axis] >= 0)
+                ? 0 : (direct_hat_min[axis] + direct_hat_max[axis]) / 2;
+        }
+    }
+    {
+        char line[160];
+        int n = snprintf(line, sizeof(line), "direct pad caps: dpad_buttons=%d hat=%d",
+                         direct_has_dpad_buttons, direct_has_hat);
+        if (n > 0 && n < (int)sizeof(line)) loader_note(line);
+    }
     return 1;
 }
 
@@ -592,6 +617,20 @@ static void direct_apply(const struct input_event *event) {
             case ABS_RZ: { int v = event->value - direct_abs_min[5];
                 int span = direct_abs_max[5] - direct_abs_min[5];
                 direct_rt = span > 0 ? (unsigned char)(v * 255 / span) : 0; } break;
+            case ABS_HAT0X:
+                /* Hats are signed around their neutral position, which is 0 on
+                 * every real device (-1..1, or a wider symmetric range). Compare
+                 * against that neutral, not the extreme: a press at -1 equals
+                 * min, and a strict "below min" test would never fire. */
+                direct_buttons &= ~(XINPUT_GAMEPAD_DPAD_LEFT | XINPUT_GAMEPAD_DPAD_RIGHT);
+                if (event->value < direct_hat_neutral[0]) direct_buttons |= XINPUT_GAMEPAD_DPAD_LEFT;
+                else if (event->value > direct_hat_neutral[0]) direct_buttons |= XINPUT_GAMEPAD_DPAD_RIGHT;
+                break;
+            case ABS_HAT0Y:
+                direct_buttons &= ~(XINPUT_GAMEPAD_DPAD_UP | XINPUT_GAMEPAD_DPAD_DOWN);
+                if (event->value < direct_hat_neutral[1]) direct_buttons |= XINPUT_GAMEPAD_DPAD_UP;
+                else if (event->value > direct_hat_neutral[1]) direct_buttons |= XINPUT_GAMEPAD_DPAD_DOWN;
+                break;
             default: return;
         }
         ++direct_events_seen;
@@ -684,6 +723,7 @@ static unsigned long long si_handle;
 /* 0 unstarted, 1 resolved-but-not-ready, 2 ready, 3 unavailable */
 static int si_state;
 static int si_sourced_pad;  /* last poll came from Steam Input actions */
+static int pad_source;      /* 0 none, 1 Steam Input, 2 evdev, 3 SDL */
 
 static void si_shutdown_hook(void);
 static void si_resolve_handles(void);
@@ -925,10 +965,32 @@ static int poll_pad(XINPUT_STATE *state) {
      * below keeps the pad state fresh without touching SDL's queue. */
     si_try_init();
     si_sourced_pad = si_poll(state, NULL, NULL);
-    if (si_sourced_pad) return 1;
+    if (si_sourced_pad) {
+        /* Steam Input actions own the analog axes, but buttons are ORed with the
+         * physical pad: on Deck hardware the D-pad has been seen missing from
+         * the action set while evdev still reports it, and a button that one
+         * source cannot see must not be masked out by the other. */
+        direct_poll();
+        if (direct_fd >= 0) state->Gamepad.wButtons |= direct_buttons;
+        pad_source = 1;
+        return 1;
+    }
     direct_poll();
     if (direct_fd >= 0) {
-        state->Gamepad.wButtons = direct_buttons;
+        unsigned buttons = direct_buttons;
+        if (!direct_has_dpad_buttons && !direct_has_hat) {
+            /* The opened device exposes no D-pad at all; SDL maps hats to D-pad
+             * buttons, so take those four bits from SDL before giving up. */
+            if (!gamepad) open_first_gamepad();
+            if (gamepad) {
+                if (sdl_button(SDL_CB_DPUP)) buttons |= XINPUT_GAMEPAD_DPAD_UP;
+                if (sdl_button(SDL_CB_DPDOWN)) buttons |= XINPUT_GAMEPAD_DPAD_DOWN;
+                if (sdl_button(SDL_CB_DPLEFT)) buttons |= XINPUT_GAMEPAD_DPAD_LEFT;
+                if (sdl_button(SDL_CB_DPRIGHT)) buttons |= XINPUT_GAMEPAD_DPAD_RIGHT;
+            }
+        }
+        pad_source = 2;
+        state->Gamepad.wButtons = buttons;
         state->Gamepad.sThumbLX = direct_lx;
         state->Gamepad.sThumbLY = (short)-direct_ly;   /* evdev y is down */
         state->Gamepad.sThumbRX = direct_rx;
@@ -940,6 +1002,7 @@ static int poll_pad(XINPUT_STATE *state) {
     }
     if (!gamepad) open_first_gamepad();
     if (!gamepad) return 0;
+    pad_source = 3;
     unsigned buttons = 0;
     if (sdl_button(SDL_CB_A)) buttons |= XINPUT_GAMEPAD_A;
     if (sdl_button(SDL_CB_B)) buttons |= XINPUT_GAMEPAD_B;
@@ -1286,9 +1349,10 @@ static int dispatch(lua_State *state) {
         if (++state_log_counter > 300) {
             state_log_counter = 0;
             if (runtime_log) {
-                fprintf(runtime_log, "state: connected=%d focused=%d movie=%d buttons=%u lx=%d lt=%d rt=%d size=%dx%d si=%d\n",
+                fprintf(runtime_log, "state: connected=%d focused=%d movie=%d buttons=%u lx=%d lt=%d rt=%d size=%dx%d si=%d src=%d dpad=%d\n",
                     connected, focused, movie_playing(), pad.Gamepad.wButtons,
-                    pad.Gamepad.sThumbLX, pad.Gamepad.bLeftTrigger, pad.Gamepad.bRightTrigger, width, height, si_state);
+                    pad.Gamepad.sThumbLX, pad.Gamepad.bLeftTrigger, pad.Gamepad.bRightTrigger, width, height, si_state,
+                    pad_source, direct_fd >= 0 ? (1 + direct_has_dpad_buttons + 2 * direct_has_hat) : 0);
                 fflush(runtime_log);
             }
         }
@@ -1318,7 +1382,13 @@ static int dispatch(lua_State *state) {
         si_active, gyro_pitch, gyro_yaw
     };
     for (size_t index = 0; index < 23; ++index) push_number(state, values[index]);
-    return 23;
+    /* Appended after the fixed contract: pad source (0 none / 1 Steam Input /
+     * 2 evdev / 3 SDL) and the opened device's D-pad capabilities
+     * (0 no pad, 1 BTN_DPAD_*, 2 hat axes, 3 both). Existing callers that read a
+     * fixed prefix keep working. */
+    push_number(state, pad_source);
+    push_number(state, direct_fd >= 0 ? (1 + direct_has_dpad_buttons + 2 * direct_has_hat) : 0);
+    return 25;
 }
 
 /* ------------------------------------------------------------------ */

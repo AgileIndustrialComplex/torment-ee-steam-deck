@@ -1,6 +1,6 @@
 -- PST:EE Xbox prototype. Native input stays inside the foreground game process.
 PSTController = {
-    version = '0.3.3', status = 'Starting Xbox mod', error = nil,
+    version = '0.3.4', status = 'Starting Xbox mod', error = nil,
     buttons = 0, lastTick = 0, lastMove = 0, repeatAt = {},
     armed = false, radial = false, radialIndex = 1, dialogIndex = 1,
     drive = true, moving = false, pausedForRadial = false,
@@ -1218,20 +1218,27 @@ function pad.Step()
         if now>=(pad.nextMovementLog or 0) then
             pad.nextMovementLog=now+500; pad.native(12,200,remaining,selectedCount)
         end
-        -- Flow steering: the goal slides with the stick every 70 ms and its
-        -- length follows stick deflection, so the character tracks the stick
-        -- continuously instead of chasing one distant waypoint.
-        local due=starting or turned or now-(pad.lastMove or 0)>=70
-        if positionValid ~= 0 and due and playerX >= 0 and playerY >= 0 then
+        -- Flow steering: one goal comfortably ahead, refreshed only when the
+        -- character nears it, on a real turn, or as a slow safety net. A short
+        -- goal re-planned every tick is what made the walk stutter on hardware;
+        -- the native side then slides the live move instead of restarting it.
+        local near = remaining >= 0 and remaining <= 90
+        local due = starting or turned or near or now - (pad.lastMove or 0) >= 450
+        if positionValid ~= 0 and due and now >= (pad.steerHoldUntil or 0)
+            and playerX >= 0 and playerY >= 0 then
             if game:GetState() == 0 then
-                local _,issued=pad.native(9,math.floor(dx*lm*10000),math.floor(-dy*lm*10000),2)
+                local _,issued=pad.native(9,math.floor(dx*10000),math.floor(-dy*10000),2)
                 if issued~=0 then
                     pad.nativeDriving=true
                     pad.lastMove, pad.moving = now, true
                     pad.moveDirectionX, pad.moveDirectionY = dx, dy
-                    -- Do not clear the turn candidate here: flow mode refreshes
-                    -- every 70 ms, and clearing it would restart the 80 ms
+                    -- Do not clear the turn candidate here: the native side may
+                    -- refresh on arrival, and clearing it would restart the 80 ms
                     -- persistence timer before a gentle turn could settle.
+                else
+                    -- Blocked direction or a native hold: back off briefly rather
+                    -- than re-planning every frame.
+                    pad.steerHoldUntil, pad.lastMove = now + 220, now
                 end
             end
         end

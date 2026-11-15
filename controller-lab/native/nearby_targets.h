@@ -217,6 +217,14 @@ static uintptr_t steering_area;
 static uint32_t steering_leader=UINT32_MAX;
 static int32_t steering_target[2];
 static int steering_owned,steering_run;
+/* Flow guards. The engine pathfinds to the point it is given, so an
+ * unreachable direction makes it route around - occasionally backwards. Track
+ * how the leader actually moved since the previous dispatch: no progress, or
+ * progress against the stick, means "hold still" instead of "walk elsewhere".
+ */
+static int32_t steering_prev_origin[2];
+static int steering_have_prev, steering_stall, steering_backwards;
+static unsigned steering_hold_until;
 static uint32_t steering_members[6];
 static int steering_count;
 static void (*group_clear_actions)(void *);
@@ -366,15 +374,13 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                 }
                 int lookahead;
                 if (flow) {
-                    /* Flow: the goal sits just ahead of the leader and grows with
-                     * stick deflection, so a half-tilt walks slowly and a full
-                     * tilt runs, and the route never points past a wall the way a
-                     * 220-unit waypoint does.
+                    /* Flow keeps one goal comfortably ahead of the leader: at
+                     * walk speed a 200-unit goal lasts several hundred ms, so the
+                     * route is only refreshed on arrival, on a real turn, or as a
+                     * slow safety net. Short goals re-planned every tick were the
+                     * cause of the stutter seen on hardware.
                      */
-                    double magnitude=length/10000.0;
-                    if (magnitude>1) magnitude=1;
-                    lookahead=(int)(60.0+120.0*magnitude);
-                    if (count>1) lookahead=(int)(lookahead*1.35);
+                    lookahead=count>1 ? 260 : 200;
                 } else lookahead=count>1 ? 300 : 220;
                 steering_target[0]=origin[0]+(int32_t)(dx/length*lookahead);
                 steering_target[1]=origin[1]+(int32_t)(dy/length*(lookahead*0.75));
@@ -388,6 +394,33 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                      */
                     if (!same_owner || run!=steering_run) prepare_group_run((void *)area);
                     if (flow) {
+                        /* Progress guard first: what did the leader actually do
+                         * since the last dispatch? */
+                        unsigned now_tick = get_ticks ? get_ticks() : 0;
+                        int32_t moved[2] = {origin[0]-steering_prev_origin[0],
+                                            origin[1]-steering_prev_origin[1]};
+                        int32_t moved_manhattan = (moved[0]<0?-moved[0]:moved[0]) + (moved[1]<0?-moved[1]:moved[1]);
+                        double wantx=dx/length, wanty=dy/length;
+                        double along=moved[0]*wantx+moved[1]*wanty;
+                        if (steering_have_prev && steering_area==area && steering_leader==id) {
+                            if (moved_manhattan<=3) ++steering_stall; else steering_stall=0;
+                            if (moved_manhattan>6 && along<-0.25*moved_manhattan) ++steering_backwards;
+                            else steering_backwards=0;
+                            if (steering_stall>=2 || steering_backwards>=1) {
+                                /* Cancel and hold: walking somewhere else (or
+                                 * backwards) is worse than standing still. */
+                                if (steering_owned && group_clear_actions)
+                                    group_clear_actions((void *)(game+0xa290));
+                                steering_owned=0; steering_leader=UINT32_MAX;
+                                steering_stall=0; steering_backwards=0;
+                                steering_hold_until=now_tick+350;
+                                log_runtime(12,207,along<0?-1:0,moved_manhattan);
+                                goto remaining_distance;
+                            }
+                        }
+                        steering_prev_origin[0]=origin[0]; steering_prev_origin[1]=origin[1];
+                        steering_have_prev=1;
+                        if (steering_hold_until && now_tick<steering_hold_until) goto remaining_distance;
                         /* Stick tracking, cheapest first:
                          * 1. slide the live MoveToPoint of every member that has
                          *    one - keeps the action, its elapsed ticks and route;
@@ -472,7 +505,10 @@ remaining_distance:
             remaining=sqrt(x*x+y*y);
         }
     }
-    if (operation==11) steering_owned=0;
+    if (operation==11) {
+        steering_owned=0;
+        steering_have_prev=0; steering_stall=0; steering_backwards=0; steering_hold_until=0;
+    }
     push_number(state,remaining);
     if (operation==9) {push_number(state,issued); return 2;}
     return 1;

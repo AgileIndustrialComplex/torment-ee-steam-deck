@@ -368,8 +368,8 @@ int main(void) {
         int flow_clears = group_clear_count, flow_moves = group_move_count, flow_paths = path_requests;
         for (int tick = 0; tick < 30; ++tick) {
             int32_t dx = (tick % 2) ? 6000 : 10000;
-            int lookahead = (int)(60.0 + 120.0 * (dx / 10000.0));
-            if (members > 1) lookahead = (int)(lookahead * 1.35);
+            /* Flow keeps one long goal ahead instead of re-planning every tick. */
+            int lookahead = members > 1 ? 260 : 200;
             for (int index = 0; index < members; ++index) {
                 integer(model_actors[index], 0x3f0, 23); integer(model_actors[index], 0x3ec, 77);
                 integer(model_actors[index], 0x3e8, 0); integer(model_actors[index], 0x348, 1);
@@ -391,8 +391,8 @@ int main(void) {
         /* No live move left: the leader's own sprite move is re-pointed instead
          * of piling another group order onto the queue. */
         for (int index = 0; index < members; ++index) integer(model_actors[index], 0x348, 0);
-        integer(leader, 0xc, 1000);
-        int fallback_lookahead = members > 1 ? (int)(180 * 1.35) : 180;
+        int32_t leader_x = 0; memcpy(&leader_x, leader + 0xc, 4);
+        int fallback_lookahead = members > 1 ? 260 : 200;
         int before_sprite = path_requests;
         result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
         assert(results[1] == 1);
@@ -400,18 +400,21 @@ int main(void) {
         assert(path_requests == before_sprite + members);
         for (int index = 0; index < members; ++index) {
             int32_t point[2]; memcpy(point, model_actors[index] + 0x460, 8);
-            assert(point[0] == 1000 + fallback_lookahead && point[1] == 1000);
+            assert(point[0] == leader_x + fallback_lookahead && point[1] == 1000);
         }
         /* With no path request available at all the group order is the last
          * resort and stays a single append. */
         request_move_path = NULL;
-        expected_target_x = 1000 + fallback_lookahead; expected_target_y = 1000; expected_append = 1;
+        /* Keep the leader walking: a position that never advances is the very
+         * stall the guard exists to catch. */
+        leader_x += 30; integer(leader, 0xc, leader_x);
+        expected_target_x = leader_x + fallback_lookahead; expected_target_y = 1000; expected_append = 1;
         result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
         assert(results[1] == 1 && group_move_count == flow_moves + 1);
         request_move_path = test_path_request;
         result_count = 0; dispatch_steering(NULL, 11, 0, 0, 1, 0);
     }
-    puts("PASS: flow steering slides the live destination per tick, magnitude-scaled, no group order or clear; single fallback order when idle");
+    puts("PASS: flow steering keeps one long goal, slides the live destination, no per-tick replan or clear; sprite fallback then one group order");
     /* A wrong class or invalid destination cannot trigger a memory update. */
     model_members = 1; integer(game_model, 0xa2b0, 1); ptr(head, 0, NULL);
     expected_run = 0; integer(game_model, 0xb9c0, 0); integer(leader, 0xc, 1000);

@@ -1,4 +1,4 @@
-# PST:EE Xbox Controller Mod 0.3.3 - preview
+# PST:EE Xbox Controller Mod 0.3.4 - preview
 
 Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 
@@ -19,6 +19,28 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 - A skips active movies; D-pad selects confirmation buttons, with Quit starting on No.
 - Real mouse click returns to PC mode; a controller button/trigger reactivates Xbox.
 - No top PC/controller status text. Back/View opens Options; Start pauses.
+
+## Changes in 0.3.4
+
+- **D-pad on real hardware.** The evdev reader only understood the D-pad as
+  four BTN_DPAD_* keys; pads that report it as a hat (ABS_HAT0X/ABS_HAT0Y) -
+  which is how the Deck's controller and Steam's virtual pad present it - left
+  the D-pad completely dead while the sticks kept working. Hats are now read
+  (against the device's neutral position, not its extremes), the capabilities
+  are logged (`direct pad caps:`), and if the opened device advertises no D-pad
+  at all the four bits are taken from SDL, which maps hats reliably. Buttons
+  are also merged across sources instead of letting one source mask them.
+- **Movement stutter.** Flow steering re-planned the route every 70 ms with a
+  short goal, which the engine executed as a stop-and-start every tick. It now
+  keeps one goal comfortably ahead and only refreshes it on arrival, on a real
+  turn, or as a slow safety net: a 4-second hold went from about 57 re-plans
+  to 8.
+- **Blocked directions.** When the stick points into a non-walkable area the
+  engine's pathfinding routes around it, sometimes the wrong way. The bridge now
+  watches where the leader actually moved: no progress, or progress against the
+  stick, cancels the move and holds for 350 ms - the character stays put instead
+  of running the opposite direction, and resumes the moment an open direction is
+  pushed.
 
 ## Changes in 0.3.3
 
@@ -149,7 +171,7 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
   save copying. Original saves are not deleted or imported automatically.
 - Gameplay and native binaries are unchanged from 0.1.29.
 
-Use **PSTEE-Xbox-Controller-v0.3.3-preview.zip** to install (Windows) or the
+Use **PSTEE-Xbox-Controller-v0.3.4-preview.zip** to install (Windows) or the
 Deck AppImage / native preview ZIP (Linux). The source ZIP is for
 GitHub/building. Close the game, uninstall an older managed version, then install.
 Launch through Play-Controller-Mod.cmd or ControllerLab.exe. Disable Steam Input.

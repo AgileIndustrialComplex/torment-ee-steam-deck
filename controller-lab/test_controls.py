@@ -133,19 +133,20 @@ assert(not alwaysRun, 'stick movement must retain the chosen WALK setting')
 local function lastSteering()
     for index=#trace,1,-1 do if trace[index][1]==9 then return trace[index] end end
 end
--- Flow steering: the goal keeps sliding with the stick and never clears the
--- route, so the walk animation and the single path survive the whole hold.
+-- Flow steering keeps one goal ahead: it must NOT re-plan on every tick (that
+-- stutter was the hardware complaint), only on arrival, a turn, or the slow
+-- safety-net refresh.
 local steady = count(9)
 tick(0,25); tick(0,25); tick(0,25)
-assert(count(9) > steady, 'flow steering must refresh the goal while the stick is held')
+assert(count(9) == steady, 'a steady headed hold must not re-plan every tick')
 assert(count(11) == 0, 'flow steering must not clear the route while the stick is held')
 local steering = lastSteering()
 assert(steering[4] == 2, 'steering must request flow mode')
 assert(steering[2] > 0 and steering[3] == 0, 'flow goal must follow the stick direction')
-local fullTilt = steering[2]
-snapshot[3] = 12000; tick(0,200)
-local halfTilt = lastSteering()[2]
-assert(halfTilt > 0 and halfTilt < fullTilt, 'goal length must scale with stick deflection')
+assert(math.abs(steering[2]) > 9000, 'the goal must be sent as a unit direction')
+routeRemaining = 60; tick(0,25)
+assert(count(9) == steady + 1, 'approaching the goal must refresh it')
+routeRemaining = 300
 snapshot[3] = 25000
 -- Turning re-dispatches the same tick with the new heading.
 snapshot[3] = 0; snapshot[4] = 25000; tick(0,25)
@@ -159,9 +160,11 @@ assert(count(5)>=2 and count(11)==1 and not alwaysRun, 'release stops the owned 
 snapshot[18]=2; snapshot[3]=25000; snapshot[4]=0; snapshot[15]=900; snapshot[16]=700
 pad.stallAt=nil; pad.stallPos=nil; trace={}; tick(); tick()
 local commands=count(9); assert(commands>=1)
-tick(); tick(); tick(); assert(count(9)>commands, 'group flow must keep refreshing the goal')
+tick(); tick(); tick(); assert(count(9)==commands, 'group flow must not re-plan every tick')
 assert(count(11)==0, 'group flow must not clear actions while steering')
-snapshot[3]=0; snapshot[4]=25000; tick(0,25); assert(count(9)>0)
+routeRemaining=60; tick(); assert(count(9)==commands+1, 'group flow must refresh on arrival')
+routeRemaining=300
+snapshot[3]=0; snapshot[4]=25000; tick(0,25); assert(count(9)>commands, 'a real turn must re-plan at once')
 local acceptedAt=pad.lastMove
 rejectedSteering=true; tick(0,200)
 assert(pad.lastMove==acceptedAt,'a rejected steering request must not count as a refresh')
