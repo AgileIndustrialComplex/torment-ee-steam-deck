@@ -1,4 +1,4 @@
-# PST:EE Xbox Controller Mod 0.3.1 - preview
+# PST:EE Xbox Controller Mod 0.3.2 - preview
 
 Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 
@@ -20,7 +20,23 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 - Real mouse click returns to PC mode; a controller button/trigger reactivates Xbox.
 - No top PC/controller status text. Back/View opens Options; Start pauses.
 
-## Changes in 0.3.1
+## Changes in 0.3.2
+
+- **Direct evdev pad reader.** SDL's gamecontroller layer depends on a
+  mapping database keyed by device GUID, and devices whose layout the
+  shipped database does not expect read garbage or nothing at all. The
+  bridge now keeps its own pad state straight from /dev/input/event*:
+  discovery scans for a device exposing the gamepad button/axis set and
+  reads EVIOCGBIT/EVIOCGABS for the real ranges, then kernel events
+  update buttons, sticks and triggers directly. Steam Input action
+  states still take priority when active; the SDL gamepad remains the
+  last fallback. A device can be pinned with PSTPAD_EVENT=/dev/input/
+  eventN for fixtures and diagnostics.
+- **Diagnostics.** controller-runtime.log now carries a low-frequency
+  state line (connection, focus, movie state, button bits, stick and
+  trigger values, Steam Input state) and synthesized menu clicks are
+  logged like the other native ops.
+
 
 - **Pad debug overlay on the main menu.** A small readout in the top-left
   corner shows exactly what the mod receives: connection and input source
@@ -108,7 +124,7 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
   save copying. Original saves are not deleted or imported automatically.
 - Gameplay and native binaries are unchanged from 0.1.29.
 
-Use **PSTEE-Xbox-Controller-v0.3.1-preview.zip** to install. The source ZIP is for
+Use **PSTEE-Xbox-Controller-v0.3.2-preview.zip** to install. The source ZIP is for
 GitHub/building. Close the game, uninstall an older managed version, then install.
 Launch through Play-Controller-Mod.cmd or ControllerLab.exe. Disable Steam Input.
 Read [README.md](README.md) and [CONTROLS.md](CONTROLS.md).

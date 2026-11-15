@@ -110,6 +110,10 @@
 #define LX_CWARP_ON_EVENT_ADDR 0x660fc0u
 #define LX_CWARP_ON_EVENT_SIZE 7u
 
+/* pumped from the poll so pad state refreshes at tick rate */
+#define LX_SDL_PUMP_EVENTS_ADDR 0xa9bd70u
+#define LX_SDL_PUMP_EVENTS_SIZE 65u
+
 #define LX_SDL_POLL_EVENT_ADDR 0xa9bdc0u
 #define LX_SDL_POLL_EVENT_SIZE 119u
 

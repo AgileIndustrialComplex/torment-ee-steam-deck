@@ -62,6 +62,7 @@ BINDINGS = [
     ("cvideo_set_pointer", "_ZN8CVidMode10SetPointerEP8CVidCell7CResRefhi", "func", "patched to suppress cursor updates while the mod hides the cursor"),
     ("cwarp_on_event", "_ZN5CWarp7OnEventEP9SDL_Event", "func", "loaded by the ProcessEvents prologue we relocate"),
     # -- SDL (statically linked into the game) --------------------------- #
+    ("sdl_pump_events", "SDL_PumpEvents", "func", "pumped from the poll so pad state refreshes at tick rate"),
     ("sdl_poll_event", "SDL_PollEvent", "func", ""),
     ("sdl_push_event", "SDL_PushEvent", "func", ""),
     ("sdl_wait_event_timeout", "SDL_WaitEventTimeout", "func", ""),

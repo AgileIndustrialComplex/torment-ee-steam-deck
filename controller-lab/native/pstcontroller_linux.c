@@ -456,6 +456,163 @@ static void *sdl_controller_open(int index) {
 }
 
 /* ------------------------------------------------------------------ */
+/* direct evdev pad reader                                             */
+/* ------------------------------------------------------------------ */
+
+/* SDL's gamecontroller layer sits on top of a mapping database keyed by
+ * device GUID; devices whose layout the shipped DB does not expect (the
+ * uinput fixture here, odd pads in the wild) read garbage or nothing.
+ * The kernel broadcasts every event to all readers, so the bridge keeps
+ * its own pad state straight from /dev/input/event*: discovery scans for
+ * a device exposing BTN_SOUTH plus ABS_X, then EVIOCGBIT/EVIOCGABS give
+ * the real axis ranges. */
+#include <sys/ioctl.h>
+#include <linux/input.h>
+
+static void loader_note(const char *message);
+static int direct_fd = -1;
+static int direct_abs_min[8], direct_abs_max[8];
+static unsigned direct_buttons;
+static short direct_lx, direct_ly, direct_rx, direct_ry;
+static unsigned char direct_lt, direct_rt;
+static unsigned direct_events_seen;
+
+static void direct_abs_range(int fd, int code, int *minimum, int *maximum) {
+    struct input_absinfo info;
+    if (ioctl(fd, EVIOCGABS(code), &info) == 0) {
+        *minimum = info.minimum;
+        *maximum = info.maximum;
+    } else { *minimum = 0; *maximum = 0; }
+}
+
+static int direct_open_prepare(int fd);
+static int direct_open_device(void) {
+    char path[32];
+    /* Explicit pin (PSTPAD_EVENT=/dev/input/eventN) for fixtures where the
+     * scan is inconvenient; also handy for diagnostics. */
+    const char *pinned = getenv("PSTPAD_EVENT");
+    if (pinned && pinned[0]) {
+        int fd = open(pinned, O_RDONLY | O_NONBLOCK);
+        if (fd >= 0
+            && direct_open_prepare(fd)) {
+            direct_fd = fd;
+            direct_buttons = 0;
+            direct_lx = direct_ly = direct_rx = direct_ry = 0;
+            direct_lt = direct_rt = 0;
+            char line[128];
+            int n = snprintf(line, sizeof(line), "direct pad: %s (pinned)", pinned);
+            if (n > 0 && n < (int)sizeof(line)) loader_note(line);
+            return 1;
+        }
+        if (fd >= 0) close(fd);
+        return 0;
+    }
+    for (int index = 0; index < 64; ++index) {
+        snprintf(path, sizeof(path), "/dev/input/event%d", index);
+        int fd = open(path, O_RDONLY | O_NONBLOCK);
+        if (fd < 0) {
+            if (errno == EACCES || errno == ENOENT) continue;
+            char line[96];
+            int n = snprintf(line, sizeof(line), "direct scan: %s errno=%d", path, errno);
+            if (n > 0 && n < (int)sizeof(line)) loader_note(line);
+            continue;
+        }
+        if (direct_open_prepare(fd)) {
+            direct_fd = fd;
+            direct_buttons = 0;
+            direct_lx = direct_ly = direct_rx = direct_ry = 0;
+            direct_lt = direct_rt = 0;
+            char line[128];
+            int n = snprintf(line, sizeof(line), "direct pad: %s", path);
+            if (n > 0 && n < (int)sizeof(line)) loader_note(line);
+            return 1;
+        }
+        close(fd);
+    }
+    return 0;
+}
+
+static int direct_open_prepare(int fd) {
+    unsigned char keybits[KEY_MAX / 8 + 1] = {0};
+    unsigned char absbits[ABS_MAX / 8 + 1] = {0};
+    if (ioctl(fd, EVIOCGBIT(EV_KEY, sizeof keybits), keybits) < 0) return 0;
+    if (ioctl(fd, EVIOCGBIT(EV_ABS, sizeof absbits), absbits) < 0) return 0;
+    if (!((keybits[BTN_SOUTH / 8] >> (BTN_SOUTH % 8)) & 1)) return 0;
+    if (!((keybits[BTN_EAST / 8] >> (BTN_EAST % 8)) & 1)) return 0;
+    if (!((absbits[ABS_X / 8] >> (ABS_X % 8)) & 1)) return 0;
+    if (!((absbits[ABS_Y / 8] >> (ABS_Y % 8)) & 1)) return 0;
+    direct_abs_range(fd, ABS_X, &direct_abs_min[0], &direct_abs_max[0]);
+    direct_abs_range(fd, ABS_Y, &direct_abs_min[1], &direct_abs_max[1]);
+    direct_abs_range(fd, ABS_Z, &direct_abs_min[2], &direct_abs_max[2]);
+    direct_abs_range(fd, ABS_RX, &direct_abs_min[3], &direct_abs_max[3]);
+    direct_abs_range(fd, ABS_RY, &direct_abs_min[4], &direct_abs_max[4]);
+    direct_abs_range(fd, ABS_RZ, &direct_abs_min[5], &direct_abs_max[5]);
+    return 1;
+}
+
+static short direct_scale(int value, int minimum, int maximum) {
+    if (maximum <= minimum) return 0;
+    long scaled = ((long)(value - minimum) * 65535L) / (maximum - minimum) - 32768L;
+    if (scaled > 32767) scaled = 32767;
+    if (scaled < -32768) scaled = -32768;
+    return (short)scaled;
+}
+
+static void direct_apply(const struct input_event *event) {
+    if (event->type == EV_KEY) {
+        unsigned bit = 0;
+        switch (event->code) {
+            case BTN_SOUTH: bit = XINPUT_GAMEPAD_A; break;
+            case BTN_EAST: bit = XINPUT_GAMEPAD_B; break;
+            case BTN_C: bit = XINPUT_GAMEPAD_X; break;
+            case BTN_NORTH: bit = XINPUT_GAMEPAD_Y; break;
+            case BTN_TL: bit = XINPUT_GAMEPAD_LEFT_SHOULDER; break;
+            case BTN_TR: bit = XINPUT_GAMEPAD_RIGHT_SHOULDER; break;
+            case BTN_SELECT: bit = XINPUT_GAMEPAD_BACK; break;
+            case BTN_START: bit = XINPUT_GAMEPAD_START; break;
+            case BTN_THUMBL: bit = XINPUT_GAMEPAD_LEFT_THUMB; break;
+            case BTN_THUMBR: bit = XINPUT_GAMEPAD_RIGHT_THUMB; break;
+            case BTN_DPAD_UP: bit = XINPUT_GAMEPAD_DPAD_UP; break;
+            case BTN_DPAD_DOWN: bit = XINPUT_GAMEPAD_DPAD_DOWN; break;
+            case BTN_DPAD_LEFT: bit = XINPUT_GAMEPAD_DPAD_LEFT; break;
+            case BTN_DPAD_RIGHT: bit = XINPUT_GAMEPAD_DPAD_RIGHT; break;
+            default: return;
+        }
+        if (event->value) direct_buttons |= bit; else direct_buttons &= ~bit;
+        ++direct_events_seen;
+    } else if (event->type == EV_ABS) {
+        switch (event->code) {
+            case ABS_X: direct_lx = direct_scale(event->value, direct_abs_min[0], direct_abs_max[0]); break;
+            case ABS_Y: direct_ly = direct_scale(event->value, direct_abs_min[1], direct_abs_max[1]); break;
+            case ABS_Z: { int v = event->value - direct_abs_min[2];
+                int span = direct_abs_max[2] - direct_abs_min[2];
+                direct_lt = span > 0 ? (unsigned char)(v * 255 / span) : 0; } break;
+            case ABS_RX: direct_rx = direct_scale(event->value, direct_abs_min[3], direct_abs_max[3]); break;
+            case ABS_RY: direct_ry = direct_scale(event->value, direct_abs_min[4], direct_abs_max[4]); break;
+            case ABS_RZ: { int v = event->value - direct_abs_min[5];
+                int span = direct_abs_max[5] - direct_abs_min[5];
+                direct_rt = span > 0 ? (unsigned char)(v * 255 / span) : 0; } break;
+            default: return;
+        }
+        ++direct_events_seen;
+    }
+}
+
+/* Drain pending events; used from the poll so state is always fresh. */
+static void direct_poll(void) {
+    if (direct_fd < 0 && !direct_open_device()) return;
+    struct input_event event;
+    for (int guard = 0; guard < 256; ++guard) {
+        ssize_t got = read(direct_fd, &event, sizeof event);
+        if (got == (ssize_t)sizeof event) direct_apply(&event);
+        else if (got < 0 && (errno == EAGAIN || errno == EINTR)) break;
+        else if (got == 0) break;
+        else if (got < 0) { close(direct_fd); direct_fd = -1; break; }
+        else break;
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* Steam Input (ISteamInput v6)                                        */
 /* ------------------------------------------------------------------ */
 
@@ -762,9 +919,25 @@ static void open_first_gamepad(void) {
 static int poll_pad(XINPUT_STATE *state) {
     memset(state, 0, sizeof(*state));
     if (!engine) return 0;
+    /* NOTE: SDL_PumpEvents must NOT be called from here. The Lua tick and
+     * the engine's own event pump can end up on different threads, and
+     * pumping from both stalls the game loop. The direct evdev reader
+     * below keeps the pad state fresh without touching SDL's queue. */
     si_try_init();
     si_sourced_pad = si_poll(state, NULL, NULL);
     if (si_sourced_pad) return 1;
+    direct_poll();
+    if (direct_fd >= 0) {
+        state->Gamepad.wButtons = direct_buttons;
+        state->Gamepad.sThumbLX = direct_lx;
+        state->Gamepad.sThumbLY = (short)-direct_ly;   /* evdev y is down */
+        state->Gamepad.sThumbRX = direct_rx;
+        state->Gamepad.sThumbRY = (short)-direct_ry;
+        state->Gamepad.bLeftTrigger = direct_lt;
+        state->Gamepad.bRightTrigger = direct_rt;
+        state->dwPacketNumber = direct_events_seen;
+        return 1;
+    }
     if (!gamepad) open_first_gamepad();
     if (!gamepad) return 0;
     unsigned buttons = 0;
@@ -1096,6 +1269,7 @@ static int dispatch(lua_State *state) {
             log_runtime(operation, a, b, 1);
         } else if (focused && (operation == 2 || operation == 4) && a >= 0 && b >= 0 && a < width && b < height) {
             if (operation == 4) synchronize_pointer(window, a, b);
+            log_runtime(operation, a, b, c == 3 ? 3 : 1);
             mouse_click(window, a, b, c == 3 ? 3 : 1);
         } else if (operation == 3 && (focused || !b) && a > 0) {
             keyboard_event(window, a, b != 0);
@@ -1106,6 +1280,19 @@ static int dispatch(lua_State *state) {
     XINPUT_STATE pad;
     float gyro_pitch = 0.0f, gyro_yaw = 0.0f;
     int connected = poll_pad(&pad);
+    {
+        /* TEMPORARY live-state diagnostic for the container bring-up. */
+        static unsigned state_log_counter;
+        if (++state_log_counter > 300) {
+            state_log_counter = 0;
+            if (runtime_log) {
+                fprintf(runtime_log, "state: connected=%d focused=%d movie=%d buttons=%u lx=%d lt=%d rt=%d size=%dx%d si=%d\n",
+                    connected, focused, movie_playing(), pad.Gamepad.wButtons,
+                    pad.Gamepad.sThumbLX, pad.Gamepad.bLeftTrigger, pad.Gamepad.bRightTrigger, width, height, si_state);
+                fflush(runtime_log);
+            }
+        }
+    }
     /* Extra returns beyond the Windows bridge's 20: Steam Input active
      * and gyro angular velocity (deg/s). The Lua side ignores them until
      * it asks, so the shared contract stays intact. */
@@ -1581,7 +1768,7 @@ static int initialized;
 static int bridge_initialize(void) {
     if (initialized) return 1;
     loader_log = open_side_log("controller-loader.log");
-    loader_note("Controller Lab native bridge 0.3.1 (Linux)");
+    loader_note("Controller Lab native bridge 0.3.2 (Linux)");
     if (!controller_lab_profile()) {
         loader_note("Refused: the isolated Controller Lab profile is missing");
         return 0;

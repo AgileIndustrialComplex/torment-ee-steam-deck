@@ -1,6 +1,6 @@
 -- PST:EE Xbox prototype. Native input stays inside the foreground game process.
 PSTController = {
-    version = '0.3.1', status = 'Starting Xbox mod', error = nil,
+    version = '0.3.2', status = 'Starting Xbox mod', error = nil,
     buttons = 0, lastTick = 0, lastMove = 0, repeatAt = {},
     armed = false, radial = false, radialIndex = 1, dialogIndex = 1,
     drive = true, moving = false, pausedForRadial = false,
@@ -216,11 +216,14 @@ function pad.DebugOverlay()
     for _, entry in ipairs(PAD_BIT_NAMES) do
         if math.floor(d.buttons / entry[1]) % 2 == 1 then names[#names+1] = entry[2] end
     end
+    local nav = pad.navigationCurrent or navigationMenu and navigationMenu() or nil
     return table.concat({
         string.format('pad: %s | %s', source, state),
         'buttons: ' .. (#names > 0 and table.concat(names, ' ') or '-'),
         string.format('L %+6d %+6d  R %+6d', d.lx or 0, d.ly or 0, d.rx or 0),
         string.format('LT %3d  RT %3d', d.lt or 0, d.rt or 0),
+        string.format('nav: %s  cur: %s,%s', nav or '-', tostring(pad.cursorX), tostring(pad.cursorY)),
+        string.format('specs: %d menus mouse: %s', pad.navSpecCount or -1, tostring(pad.debugMouse and pad.debugMouse()))
     }, '\n')
 end
 
@@ -794,6 +797,12 @@ function pad.Step()
     if not pad.native then return 'Xbox mod unavailable: ' .. tostring(pad.error) end
     local connected, buttons, rawLX, rawLY, rawRX, rawRY, lt, rt,
         mx, my, width, height, now, focused, playerX, playerY, positionValid, selectedCount, physicalClicks, moviePlaying, siActive = pad.native(0)
+    if pad.navigationMenus and pad.navSpecCount == nil then
+        local count = 0
+        for _ in pairs(pad.navigationMenus) do count = count + 1 end
+        pad.navSpecCount = count
+    end
+    pad.debugMouse = function() return mx .. ',' .. my end
     -- Snapshot for the START_MAIN pad debug overlay.
     pad.debug = { connected=connected, buttons=buttons, lx=rawLX, ly=rawLY,
         rx=rawRX, ry=rawRY, lt=lt, rt=rt, si=siActive,
