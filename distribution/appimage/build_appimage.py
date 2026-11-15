@@ -28,7 +28,7 @@ APPIMAGETOOL_URL = (
     "https://github.com/AppImage/appimagetool/releases/download/continuous/"
     "appimagetool-x86_64.AppImage"
 )
-VERSION = "0.3.2"
+VERSION = "0.3.3"
 
 
 def png_chunk(kind: bytes, data: bytes) -> bytes:
@@ -82,6 +82,10 @@ def build_icon(path: Path, size: int = 256) -> None:
 
 
 def run_appimagetool(appdir: Path, output: Path, workdir: Path) -> None:
+    # Absolute paths: both calls run with cwd=workdir, so a relative cache path
+    # would be resolved against that directory and never found.
+    workdir = workdir.resolve()
+    appdir, output = appdir.resolve(), output.resolve()
     cache = workdir / "appimagetool-x86_64.AppImage"
     if not cache.is_file():
         print(f"downloading appimagetool ...")

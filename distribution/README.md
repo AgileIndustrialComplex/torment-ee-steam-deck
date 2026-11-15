@@ -1,4 +1,4 @@
-# PST:EE Xbox Controller Mod - preview 0.3.2
+# PST:EE Xbox Controller Mod - preview 0.3.3
 
 Xbox/XInput controller support for Planescape: Torment Enhanced Edition on
 Windows x64: character and party movement, camera control, nearby interaction,
@@ -8,8 +8,8 @@ dialogue, menu navigation and a compact two-page radial menu.
 
 ## Choose the correct download
 
-- **PSTEE-Xbox-Controller-v0.3.2-preview.zip**: ready-to-install mod.
-- **PSTEE-Xbox-Controller-v0.3.2-source.zip**: source project for GitHub and
+- **PSTEE-Xbox-Controller-v0.3.3-preview.zip**: ready-to-install mod.
+- **PSTEE-Xbox-Controller-v0.3.3-source.zip**: source project for GitHub and
   compiling. It does not contain manifest.json or compiled payload files.
   Do not run distribution/Install.cmd from this archive.
 

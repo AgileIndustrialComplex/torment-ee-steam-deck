@@ -1,4 +1,4 @@
-# PST:EE Xbox Controller Mod 0.3.2 - preview
+# PST:EE Xbox Controller Mod 0.3.3 - preview
 
 Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 
@@ -19,6 +19,31 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 - A skips active movies; D-pad selects confirmation buttons, with Quit starting on No.
 - Real mouse click returns to PC mode; a controller button/trigger reactivates Xbox.
 - No top PC/controller status text. Back/View opens Options; Start pauses.
+
+## Changes in 0.3.3
+
+- **Title screen navigation.** The engine opens its START screen before the mod's
+  Lua is loaded, so the main menu never registered as a navigation menu and the
+  cursor floated with nothing selected. The start screen is now detected
+  directly, New Game is the initial focus, and the cursor settles back onto the
+  nearest gem about 180 ms after the sticks rest: exactly one button stays
+  selected the whole time while the sticks still aim freely.
+- **Flow steering.** Movement no longer chases a distant waypoint that has to be
+  re-ordered. The goal now slides with the stick every 70 ms, its length follows
+  stick deflection, and each tick prefers to move the live MoveToPoint
+  destination, then re-points the sprite's own MoveToPoint, and only then issues
+  one appended group order - the route is never cleared while the stick is held.
+  Characters track the stick continuously, curve through turns without stopping
+  and stop once on release.
+- **D-pad dialogue answers.** The answer list's own mouse exit cleared the
+  selection every frame, so the D-pad looked dead. The selected answer is now
+  re-asserted every tick, up/down clamp to the clickable rows, and an idle chat
+  whose rows the engine will not report as clickable speaks the first available
+  answer instead of pressing a Continue button the stock UI disables.
+- The runtime log records the answer-list shape and the dispatched answer marker
+  when they change, and every steering dispatch logs whether it slid a live move,
+  re-pointed a sprite or fell back to a group order.
+- Windows download links point at the upstream preview that actually exists.
 
 ## Changes in 0.3.2
 
@@ -124,7 +149,8 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
   save copying. Original saves are not deleted or imported automatically.
 - Gameplay and native binaries are unchanged from 0.1.29.
 
-Use **PSTEE-Xbox-Controller-v0.3.2-preview.zip** to install. The source ZIP is for
+Use **PSTEE-Xbox-Controller-v0.3.3-preview.zip** to install (Windows) or the
+Deck AppImage / native preview ZIP (Linux). The source ZIP is for
 GitHub/building. Close the game, uninstall an older managed version, then install.
 Launch through Play-Controller-Mod.cmd or ControllerLab.exe. Disable Steam Input.
 Read [README.md](README.md) and [CONTROLS.md](CONTROLS.md).

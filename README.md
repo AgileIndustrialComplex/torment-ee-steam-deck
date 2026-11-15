@@ -8,7 +8,7 @@ dialogue, menu navigation and a compact two-page radial menu.
 
 ## Download
 
-[**Download v0.3.2 for Windows — ready to install**](https://github.com/NiksonLichev/planescape-torment-enhanced-edition-xbox-controller-mod/releases/download/v0.3.2/PSTEE-Xbox-Controller-v0.3.2-preview.zip)
+[**Download the Windows build (upstream v0.1.31) — ready to install**](https://github.com/NiksonLichev/planescape-torment-enhanced-edition-xbox-controller-mod/releases/download/v0.1.31/PSTEE-Xbox-Controller-v0.1.31-preview.zip)
 
 Extract the complete ZIP and run **Install.cmd**.
 
@@ -28,7 +28,7 @@ bash distribution/linux/install-deck.sh
 ```
 
 **Steam Deck, no terminal:** download the graphical installer
-**[PSTEE-Deck-Controller-v0.3.2-x86_64.AppImage](https://github.com/AgileIndustrialComplex/torment-ee-steam-deck-controls/releases/download/v0.3.2/PSTEE-Deck-Controller-v0.3.2-x86_64.AppImage)**,
+**[PSTEE-Deck-Controller-v0.3.3-x86_64.AppImage](https://github.com/AgileIndustrialComplex/torment-ee-steam-deck/releases/download/v0.3.3/PSTEE-Deck-Controller-v0.3.3-x86_64.AppImage)**,
 double-click it in Desktop Mode and the installation log streams in a
 window. It bundles the whole payload, so it needs no network and installs
 the same files the same way.
