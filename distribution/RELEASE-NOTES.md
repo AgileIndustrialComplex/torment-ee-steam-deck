@@ -1,4 +1,4 @@
-# PST:EE Xbox Controller Mod 0.3.6 - preview
+# PST:EE Xbox Controller Mod 0.3.7 - preview
 
 Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 
@@ -19,6 +19,18 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 - A skips active movies; D-pad selects confirmation buttons, with Quit starting on No.
 - Real mouse click returns to PC mode; a controller button/trigger reactivates Xbox.
 - No top PC/controller status text. Back/View opens Options; Start pauses.
+
+## Changes in 0.3.7
+
+- **Narrow passageways.** A 200-unit goal points through walls in a corridor,
+  and the resulting route-around, hold and retry loop made walking them nearly
+  impossible. The goal length is now adaptive: blocked movement shrinks it to a
+  step that fits the passage (and shortens the hold to 180 ms), free movement
+  earns the full length back. When the stick points into a wall the movement
+  also slides along it - first along the stick's minor axis, flipping to the
+  other if that is blocked too - so a diagonal push into a wall still travels
+  along the passage instead of sticking. Verified in play: pushing diagonally
+  into the mortuary's top wall carried the character 160 units along it.
 
 ## Changes in 0.3.6
 
@@ -202,7 +214,7 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
   save copying. Original saves are not deleted or imported automatically.
 - Gameplay and native binaries are unchanged from 0.1.29.
 
-Use **PSTEE-Xbox-Controller-v0.3.6-preview.zip** to install (Windows) or the
+Use **PSTEE-Xbox-Controller-v0.3.7-preview.zip** to install (Windows) or the
 Deck AppImage / native preview ZIP (Linux). The source ZIP is for
 GitHub/building. Close the game, uninstall an older managed version, then install.
 Launch through Play-Controller-Mod.cmd or ControllerLab.exe. Disable Steam Input.

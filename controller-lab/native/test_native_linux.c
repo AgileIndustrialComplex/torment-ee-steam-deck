@@ -429,6 +429,43 @@ int main(void) {
         /* Companions follow the protagonist explicitly, at any selection. A far
          * follower gets exactly one order per dispatch toward the leader's
          * current position; a close one is left alone. */
+        /* Adaptive goal: a blocked leader shrinks the goal and shortens the
+         * hold; movement earns the length back. */
+        {
+            integer(leader, 0xc, 2000); integer(leader, 0x10, 1000);
+            integer(model_actors[0], 0x3f0, 23); integer(model_actors[0], 0x348, 1);
+            steering_goal_scale = 100;
+            steering_slide_until = 0; steering_slide_axis = -1;
+            result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
+            assert(results[1] == 1);
+            int adaptive_base = members > 1 ? 260 : 200;
+            { int32_t point[2]; memcpy(point, leader + 0x460, 8);
+              assert(point[0] == 2000 + adaptive_base && point[1] == 1000); }   /* full goal */
+            /* Two dispatches with the leader teleporting backwards trip the guard. */
+            integer(leader, 0xc, 1600);
+            result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
+            integer(leader, 0xc, 1500);
+            result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
+            assert(steering_goal_scale == 35);
+            steering_slide_until = 0; steering_slide_axis = -1;  /* scale logic only */
+            test_tick += 200;                  /* let the 180 ms hold expire */
+            integer(leader, 0xc, 1500 + 30);   /* leader moves forward next check */
+            integer(model_actors[0], 0x3f0, 23); integer(model_actors[0], 0x348, 1);
+            result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
+            assert(steering_goal_scale == 50);
+            { int32_t point[2]; memcpy(point, leader + 0x460, 8);
+              /* The scale grows after the goal was computed: this order still
+               * carries the shrunk goal, the next one the grown length. */
+              assert(point[0] == 1530 + (adaptive_base * 35 / 100) && point[1] == 1000); }
+            test_tick += 200; integer(leader, 0xc, 1560);
+            result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
+            assert(steering_goal_scale == 65);
+            { int32_t point[2]; memcpy(point, leader + 0x460, 8);
+              assert(point[0] == 1560 + (adaptive_base * 50 / 100) && point[1] == 1000); }
+            steering_goal_scale = 100;
+            steering_slide_until = 0; steering_slide_axis = -1;
+            result_count = 0; dispatch_steering(NULL, 11, 0, 0, 1, 0);
+        }
         if (members == 2) {
             /* The friend's row was re-generated to 9 earlier, so the party
              * slot must carry the live id 0x10009 for object_for_id to resolve

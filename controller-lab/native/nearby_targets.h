@@ -225,6 +225,16 @@ static int steering_owned,steering_run;
 static int32_t steering_prev_origin[2];
 static int steering_have_prev, steering_stall, steering_backwards;
 static unsigned steering_hold_until;
+/* Adaptive goal length: a long goal is smooth in the open, but inside a narrow
+ * passage it points into a wall and the engine's route-around (or the hold
+ * guard) makes progress impossible. Shrink the goal whenever the leader is
+ * blocked and grow it back while he moves freely. */
+static int steering_goal_scale = 100;
+/* Wall slide: when the stick points into a wall, keep moving along its
+ * dominant axis - that is the corridor's direction - instead of sticking.
+ * The slide persists while movement continues and clears on release. */
+static unsigned steering_slide_until;
+static int steering_slide_axis = -1;   /* 0 = x, 1 = y, -1 none */
 static uint32_t steering_members[6];
 static int steering_count;
 static void (*group_clear_actions)(void *);
@@ -386,14 +396,25 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                     }
                 }
                 int lookahead;
+                if (flow && steering_slide_until) {
+                    unsigned slide_now = get_ticks ? get_ticks() : 0;
+                    if (slide_now < steering_slide_until && length > 0 && steering_slide_axis >= 0) {
+                        if (steering_slide_axis == 0) { dy = 0; dx = dx < 0 ? -10000 : 10000; }
+                        else { dx = 0; dy = dy < 0 ? -10000 : 10000; }
+                        length = 10000.0;
+                    } else { steering_slide_until = 0; steering_slide_axis = -1; }
+                }
                 if (flow) {
                     /* Flow keeps one goal comfortably ahead of the leader: at
                      * walk speed a 200-unit goal lasts several hundred ms, so the
                      * route is only refreshed on arrival, on a real turn, or as a
                      * slow safety net. Short goals re-planned every tick were the
-                     * cause of the stutter seen on hardware.
+                     * cause of the stutter seen on hardware. Narrow passages
+                     * shrink it so the goal stays inside the walkable corridor.
                      */
                     lookahead=count>1 ? 260 : 200;
+                    lookahead=(lookahead*steering_goal_scale)/100;
+                    if (lookahead<40) lookahead=40;
                 } else lookahead=count>1 ? 300 : 220;
                 steering_target[0]=origin[0]+(int32_t)(dx/length*lookahead);
                 steering_target[1]=origin[1]+(int32_t)(dy/length*(lookahead*0.75));
@@ -442,18 +463,41 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                         int32_t moved_manhattan = (moved[0]<0?-moved[0]:moved[0]) + (moved[1]<0?-moved[1]:moved[1]);
                         double wantx=dx/length, wanty=dy/length;
                         double along=moved[0]*wantx+moved[1]*wanty;
+                        if (steering_have_prev && moved_manhattan>6 && along>0) {
+                            /* Free movement along the stick earns the goal
+                             * length back, even right after a blocked one. */
+                            if (steering_goal_scale<100)
+                                steering_goal_scale=steering_goal_scale+15>100?100:steering_goal_scale+15;
+                            if (steering_slide_until) {
+                                unsigned slide_now = get_ticks ? get_ticks() : 0;
+                                steering_slide_until = slide_now + 600;
+                            }
+                        }
                         if (steering_have_prev && steering_area==area && steering_leader==id) {
                             if (moved_manhattan<=3) ++steering_stall; else steering_stall=0;
                             if (moved_manhattan>6 && along<-0.25*moved_manhattan) ++steering_backwards;
                             else steering_backwards=0;
                             if (steering_stall>=2 || steering_backwards>=1) {
                                 /* Cancel and hold: walking somewhere else (or
-                                 * backwards) is worse than standing still. */
+                                 * backwards) is worse than standing still. A short
+                                 * hold and a short retry goal keep a blocked
+                                 * corridor responsive instead of locking up. */
                                 if (steering_owned && group_clear_actions)
                                     group_clear_actions((void *)(game+0xa290));
                                 steering_owned=0; steering_leader=UINT32_MAX;
                                 steering_stall=0; steering_backwards=0;
-                                steering_hold_until=now_tick+350;
+                                steering_goal_scale=35;
+                                /* Blocked again while already sliding: the wall
+                                 * runs along the other axis, so flip. */
+                                /* First slide: along the stick's MINOR axis -
+                                 * a wall blocking a mostly-vertical push is
+                                 * horizontal, so X is the open direction. A wrong
+                                 * guess flips on the next block. */
+                                steering_slide_axis = steering_slide_axis == -1
+                                    ? ((dx < 0 ? -dx : dx) >= (dy < 0 ? -dy : dy) ? 1 : 0)
+                                    : 1 - steering_slide_axis;
+                                steering_slide_until=now_tick+600;
+                                steering_hold_until=now_tick+180;
                                 log_runtime(12,207,along<0?-1:0,moved_manhattan);
                                 goto remaining_distance;
                             }
@@ -580,6 +624,7 @@ remaining_distance:
     if (operation==11) {
         steering_owned=0;
         steering_have_prev=0; steering_stall=0; steering_backwards=0; steering_hold_until=0;
+        steering_slide_until=0; steering_slide_axis=-1;
     }
     push_number(state,remaining);
     if (operation==9) {push_number(state,issued); return 2;}
