@@ -1,4 +1,4 @@
-# PST:EE Xbox Controller Mod 0.4.1 - preview
+# PST:EE Xbox Controller Mod 0.5.0 - preview
 
 Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 
@@ -20,7 +20,7 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 - Real mouse click returns to PC mode; a controller button/trigger reactivates Xbox.
 - No top PC/controller status text. Back/View opens Options; Start pauses.
 
-## Changes in 0.4.1
+## Changes in 0.5.0
 
 - **No cursor over interactables.** The hover pointer that appeared over
   entities, doors and containers came from the game's cursor manager
@@ -275,7 +275,7 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
   save copying. Original saves are not deleted or imported automatically.
 - Gameplay and native binaries are unchanged from 0.1.29.
 
-Use **PSTEE-Xbox-Controller-v0.4.1-preview.zip** to install (Windows) or the
+Use **PSTEE-Xbox-Controller-v0.5.0-preview.zip** to install (Windows) or the
 Deck AppImage / native preview ZIP (Linux). The source ZIP is for
 GitHub/building. Close the game, uninstall an older managed version, then install.
 Launch through Play-Controller-Mod.cmd or ControllerLab.exe. Disable Steam Input.

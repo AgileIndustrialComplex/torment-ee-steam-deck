@@ -28,7 +28,7 @@ APPIMAGETOOL_URL = (
     "https://github.com/AppImage/appimagetool/releases/download/continuous/"
     "appimagetool-x86_64.AppImage"
 )
-VERSION = "0.4.1"
+VERSION = "0.5.0"
 
 
 def png_chunk(kind: bytes, data: bytes) -> bytes:
