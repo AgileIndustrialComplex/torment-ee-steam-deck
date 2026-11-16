@@ -395,16 +395,33 @@ assert bam[:8]==b'BAM V1  '
 frames,cycles=struct.unpack_from('<HB',bam,8)
 assert frames==3 and cycles==3
 fo,po,lo=struct.unpack_from('<3I',bam,12)
-for i,(width,height) in enumerate(((64,64),(57,97),(43,43))):
+for i,(width,height) in enumerate(((64,64),(57,97),(48,48))):
     w,h,_,_,data_offset=struct.unpack_from('<HHhhI',bam,fo+i*12)
     assert (w,h)==(width,height) and data_offset&0x80000000
     pixels=bam[data_offset&0x7fffffff:(data_offset&0x7fffffff)+w*h]
     assert len(pixels)==w*h and pixels[(h//2)*w+w//2]==0,'frame center must stay transparent'
-    assert pixels[w//2]==1 and pixels[w+w//2]==2 and pixels[2*w+w//2]==2
-    assert pixels[3*w+w//2]==0,'frame must contain two yellow pixels and one dark outer edge'
-    yellow=pixels[w+1]
-    blue,green,red,_=struct.unpack_from('<4B',bam,po+yellow*4)
-    assert red>=250 and green>=200 and blue<100,'selection must be bright yellow'
+    if i<2:
+        assert pixels[w//2]==1 and pixels[w+w//2]==2 and pixels[2*w+w//2]==2
+        assert pixels[3*w+w//2]==0,'frame must contain two yellow pixels and one dark outer edge'
+        yellow=pixels[w+1]
+        blue,green,red,_=struct.unpack_from('<4B',bam,po+yellow*4)
+        assert red>=250 and green>=200 and blue<100,'selection must be bright yellow'
+    else:
+        # The freecam sights: a thick white ring, transparent centre and corners.
+        import math
+        cx=cy=(w-1)/2; radius=w/2-2
+        on=0
+        for y in range(h):
+            for x in range(w):
+                d=math.sqrt((x-cx)**2+(y-cy)**2)
+                expected=3 if radius-2.2<=d<=radius+2.2 else 0
+                assert pixels[y*w+x]==expected,'ring pixels only in the annulus'
+                if expected: on+=1
+        assert on>200,'the sight must be a substantial ring'
+        assert pixels[(h//2)*w+2]==3 and pixels[2*w+w//2]==3
+        white=pixels[(h//2)*w+w]
+        blue,green,red,_=struct.unpack_from('<4B',bam,po+white*4)
+        assert red>=250 and green>=250 and blue>=250,'sights must be pure white'
 generated=build_ui(source)
 assert "bam 'PSTPSEL'" in generated and 'PSTController.DispatchSplitStack()' in generated and 'PSTController.DispatchQuantity()' not in generated
 print('PASS: title-screen D-pad navigation, New Life initial focus, always-selected snap-back')

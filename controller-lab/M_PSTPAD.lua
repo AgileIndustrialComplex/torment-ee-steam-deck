@@ -238,9 +238,9 @@ function pad.FreecamMarkerUpdate(width, height)
     local scale = Infinity_GetINIValue('Graphics', 'Scale UI', 1) ~= 0
         and math.min(width / 1024, height / 768) or 1
     local left = (width - 1024 * scale) / 2
-    local dx = clamp((x - left) / scale - 21, -64, 1024)
-    local dy = clamp(y / scale - 21, -64, 768)
-    Infinity_SetArea('PST_FREECAM_MARKER', math.floor(dx + 0.5), math.floor(dy + 0.5), 43, 43)
+    local dx = clamp((x - left) / scale - 24, -64, 1024)
+    local dy = clamp(y / scale - 24, -64, 768)
+    Infinity_SetArea('PST_FREECAM_MARKER', math.floor(dx + 0.5), math.floor(dy + 0.5), 48, 48)
 end
 
 function pad.DebugOverlay()
