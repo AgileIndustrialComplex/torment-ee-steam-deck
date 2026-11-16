@@ -1,4 +1,4 @@
-# PST:EE Xbox Controller Mod 0.3.8 - preview
+# PST:EE Xbox Controller Mod 0.3.9 - preview
 
 Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 
@@ -19,6 +19,19 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 - A skips active movies; D-pad selects confirmation buttons, with Quit starting on No.
 - Real mouse click returns to PC mode; a controller button/trigger reactivates Xbox.
 - No top PC/controller status text. Back/View opens Options; Start pauses.
+
+## Changes in 0.3.9
+
+- **Freecam exits on L3.** The early exit of the freecam loop swallowed the
+  second L3 press; the toggle is now handled inside the loop, so clicking L3
+  leaves freecam and the camera returns to following the party.
+- **No OS cursor over targets.** The hover feed that highlights the current
+  target raced the game's cursor logic and an OS mouse pointer appeared over
+  interactives. Every warp now re-asserts the hidden cursor state.
+- **Run animation leads the movement.** The walk->run switch now applies the
+  running animation to the driven character the moment the preference flips,
+  instead of only when the engine's group logic gets around to it - the
+  character no longer slides at run speed with a walking animation.
 
 ## Changes in 0.3.8
 
@@ -235,7 +248,7 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
   save copying. Original saves are not deleted or imported automatically.
 - Gameplay and native binaries are unchanged from 0.1.29.
 
-Use **PSTEE-Xbox-Controller-v0.3.8-preview.zip** to install (Windows) or the
+Use **PSTEE-Xbox-Controller-v0.3.9-preview.zip** to install (Windows) or the
 Deck AppImage / native preview ZIP (Linux). The source ZIP is for
 GitHub/building. Close the game, uninstall an older managed version, then install.
 Launch through Play-Controller-Mod.cmd or ControllerLab.exe. Disable Steam Input.

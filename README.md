@@ -28,7 +28,7 @@ bash distribution/linux/install-deck.sh
 ```
 
 **Steam Deck, no terminal:** download the graphical installer
-**[PSTEE-Deck-Controller-v0.3.8-x86_64.AppImage](https://github.com/AgileIndustrialComplex/torment-ee-steam-deck/releases/download/v0.3.8/PSTEE-Deck-Controller-v0.3.8-x86_64.AppImage)**,
+**[PSTEE-Deck-Controller-v0.3.9-x86_64.AppImage](https://github.com/AgileIndustrialComplex/torment-ee-steam-deck/releases/download/v0.3.9/PSTEE-Deck-Controller-v0.3.9-x86_64.AppImage)**,
 double-click it in Desktop Mode and the installation log streams in a
 window. It bundles the whole payload, so it needs no network and installs
 the same files the same way.

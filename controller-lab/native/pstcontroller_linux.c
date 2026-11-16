@@ -1316,6 +1316,10 @@ static int dispatch(lua_State *state) {
     if (!focused) set_drive_cursor_hidden(0);
     else if (cursor_hidden_by_mod) set_drive_cursor_hidden(1);
     if (operation == 5) set_drive_cursor_hidden(focused && a != 0);
+    /* A warp (the hover feed) can race the game's own cursor-show logic within
+     * a frame; re-assert the hidden state so no OS cursor appears over the
+     * highlighted target. */
+    if (operation == 1 && focused && cursor_hidden_by_mod) show_cursor(0);
     void *window = mouse_focus();
     if (!window) window = keyboard_focus();
     int x = 0, y = 0, width = 0, height = 0;

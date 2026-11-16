@@ -471,6 +471,17 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                                 steering_slide_until = slide_now + 600;
                             }
                         }
+                        /* The deflection switch can flip walk->run mid-hold: the
+                         * engine's prepare_group_run only touches the SELECTED
+                         * group when the preference changes, and the leader's
+                         * slid live move keeps the old animation. Re-apply the
+                         * run state to the driven sprite on every flow dispatch
+                         * so the animation tracks the stick immediately. */
+                        if (steering_area==area && steering_leader==id
+                            && (run?1:0)!=(steering_run?1:0)) {
+                            uintptr_t la=object_for_id(leader_id);
+                            if (la) sprite_set_running(la, run);
+                        }
                         if (steering_have_prev && steering_area==area && steering_leader==id) {
                             if (moved_manhattan<=3) ++steering_stall; else steering_stall=0;
                             if (moved_manhattan>6 && along<-0.25*moved_manhattan) ++steering_backwards;
@@ -550,11 +561,9 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                             uint32_t cid=0;
                             uintptr_t actor=0;
                             int32_t cpos[2]={0,0};
-                            fprintf(stderr,"FDBG2 slot=%d party=%d\n",slot,party_count);
                             if (!read_memory(game+0xa200+(size_t)slot*4,&cid,4)
                                 || !cid || cid==UINT32_MAX || cid==leader_id) continue;
                             actor=object_for_id(cid);
-                            fprintf(stderr,"FDBG2 cid=%u actor=%ld area_ok=%d\n",cid,(long)actor,read_pointer(actor+0x18)==(uintptr_t)area);
                             if (!actor || read_pointer(actor+0x18)!=area) continue;
                             if (!read_memory(actor+0xc,cpos,8)) continue;
                             int32_t sx=origin[0]-cpos[0], sy=origin[1]-cpos[1];

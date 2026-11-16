@@ -1,4 +1,4 @@
-# Menu and input check scope - 0.3.8
+# Menu and input check scope - 0.3.9
 
 test_menu_navigation.py runs the Lua controller and real dispatch routines with
 mocked game screens. These results do not imply a physical controller playtest

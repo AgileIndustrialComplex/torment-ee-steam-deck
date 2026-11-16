@@ -1,6 +1,6 @@
 -- PST:EE Xbox prototype. Native input stays inside the foreground game process.
 PSTController = {
-    version = '0.3.8', status = 'Starting Xbox mod', error = nil,
+    version = '0.3.9', status = 'Starting Xbox mod', error = nil,
     buttons = 0, lastTick = 0, lastMove = 0, repeatAt = {},
     armed = false, radial = false, radialIndex = 1, dialogIndex = 1,
     drive = true, moving = false, pausedForRadial = false,
@@ -1119,6 +1119,13 @@ function pad.Step()
             pad.freecamTarget.state,pad.freecamTarget.icon=game:GetState(),game:GetIconIndex()
             pad.nearby=pad.freecamTarget
             pad.pendingTarget=pad.freecamTarget; pad.pendingWorld='interact'; pad.pendingWorldAt=now; key(13)
+        end
+        if edge(64) then
+            -- L3 exits freecam here, before the early return swallows the edge.
+            pad.freecam=false
+            stopMovement()
+            pad.native(1, pad.cursorX or mx, pad.cursorY or my)
+            return 'Xbox | freecam off'
         end
         pad.status='Xbox | freecam: LS pan  marker: '..(pad.freecamTarget and 'locked' or 'free')..'  A: interact  L3: exit'
         return pad.status
