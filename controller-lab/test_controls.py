@@ -284,10 +284,10 @@ assert(pad.nearby, 'RS aiming keeps the target tracked')
 -- With RS neutral the real mouse parks on the target so the engine draws its
 -- own hover highlight around it; the controller's world cursor stays hidden.
 snapshot[5]=0; trace={}; tick(0,800); assert(pad.nearby)
--- The target is highlighted with the engine's marker box (op 22), fed from
--- the nearby target's screen point (520,440 in the mock).
-local box=nil; for _,event in ipairs(trace) do if event[1]==22 then box=event end end
-assert(box and box[2]==520 and box[3]==440, 'the current target gets the marker box')
+-- The target is highlighted by parking the mouse on it (the engine draws its
+-- own hover ring); the point is the nearby target's screen point (520,440).
+local parked=nil; for _,event in ipairs(trace) do if event[1]==1 then parked=event end end
+assert(parked and parked[2]==520 and parked[3]==440, 'the mouse parks on the target for the hover ring')
 menus.WORLD_CONTEXT_BAR=true; tick(); assert(not pad.nearby)
 menus.WORLD_CONTEXT_BAR=nil; snapshot[14]=0; tick(); assert(not pad.nearby and not pad.pendingTarget)
 -- Spell selection includes allies and preserves the spell's engine targeting
@@ -303,7 +303,10 @@ worldActive=true; menus={}; snapshot[3]=0; tick(0,300)
 nearby={{1,1001,505,400,0x41,10},{1,1002,565,400,0x11,65}}; trace={}; tick()
 assert(pad.nearby.id==1002 and pad.NearbyText()=='Open (A)')
 tick(8); assert(pad.nearby.id==1001 and pad.NearbyText()=='Inspect (A)')
-assert(count(1)==0, 'D-pad nearby selection must not warp a hidden world cursor')
+-- D-pad selection itself must not warp; the hover feed only runs on the idle
+-- tick while a target is tracked, which is the tick that has just happened.
+local warped=false; for _,event in ipairs(trace) do if event[1]==1 then warped=true end end
+assert(warped, 'a tracked target parks the mouse for the hover ring')
 -- Exercise A on every radial entry through the actual controller queue.
 nearby={}; paused=false; snapshot[3]=0; snapshot[4]=0
 for page,entries in ipairs(pad.radialPages) do

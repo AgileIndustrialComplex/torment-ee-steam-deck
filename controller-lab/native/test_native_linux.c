@@ -473,21 +473,39 @@ int main(void) {
              * at 0xa218 back to 1. */
             { int16_t two = 2; put(game_model, 0xa218, &two, 2); }
             integer(game_model, 0xa204, 0x10009);
-            integer(leader, 0xc, 1000); integer(leader, 0x10, 1000);
+            /* Companions only follow when MORE than one member is selected.
+             * The selection head (head+0x10) is the Nameless One, so he is
+             * driven and the FRIEND (slot 1, id 0x10009) follows. */
+            integer(game_model, 0xa2b0, 2);
+            integer(friend_actor, 0xc, 1000); integer(friend_actor, 0x10, 1000);
             integer(friend_actor, 0x3f0, 23); integer(friend_actor, 0x3ec, 77);
             integer(friend_actor, 0x348, 1);
-            integer(friend_actor, 0xc, 500); integer(friend_actor, 0x10, 1000);
+            ptr(friend_actor, 0, engine + E_VTABLE_SPRITE);
+            ptr(friend_actor, 0x338, model_nodes[1]); ptr(model_nodes[1], 0x10, model_actions[1]);
+            { uint16_t opcode2 = 23; int32_t destination2[2] = {1100, 1000};
+              put(model_actions[1], 0, &opcode2, 2); put(model_actions[1], 0x70, destination2, 8); }
+            integer(friend_actor, 0x348, 1);
+            integer(leader, 0xc, 500); integer(leader, 0x10, 1000);
+            integer(leader, 0x3f0, 23); integer(leader, 0x3ec, 77);
+            integer(leader, 0x348, 1);
+            { uint16_t opcode = 23; int32_t queued = 1;
+              int32_t destination[2] = {600, 1000};
+              ptr(leader, 0, engine + E_VTABLE_SPRITE);
+              ptr(leader, 0x338, model_nodes[0]); ptr(model_nodes[0], 0x10, model_actions[0]);
+              put(model_actions[0], 0, &opcode, 2); put(model_actions[0], 0x70, destination, 8);
+              integer(leader, 0x348, queued); }
             int follow_paths = path_requests;
             result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
             assert(results[1] == 1);
-            assert(path_requests == follow_paths + 2); /* leader + far follower */
+            assert(path_requests == follow_paths + 2); /* driven leader + far follower */
             { int32_t point[2]; memcpy(point, friend_actor + 0x460, 8);
-              assert(point[0] == 1000 && point[1] == 1000); }
-            integer(friend_actor, 0xc, 960); integer(friend_actor, 0x10, 1000);
+              assert(point[0] == 500 && point[1] == 1000); }  /* follower heads to the NO */
+            integer(friend_actor, 0xc, 540); integer(friend_actor, 0x10, 1000);
             int close_paths = path_requests;
             result_count = 0; dispatch_steering(NULL, 9, 10000, 0, 1, 2);
             assert(results[1] == 1);
             assert(path_requests == close_paths + 1); /* leader only: close follower untouched */
+            integer(leader, 0xc, 500); integer(leader, 0x10, 1000);
         }
     }
     puts("PASS: flow steering keeps one long goal, drives the protagonist with explicit companion follow, slides the live destination, no per-tick replan or clear");

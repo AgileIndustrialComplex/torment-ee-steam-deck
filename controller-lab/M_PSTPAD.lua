@@ -1,6 +1,6 @@
 -- PST:EE Xbox prototype. Native input stays inside the foreground game process.
 PSTController = {
-    version = '0.3.7', status = 'Starting Xbox mod', error = nil,
+    version = '0.3.8', status = 'Starting Xbox mod', error = nil,
     buttons = 0, lastTick = 0, lastMove = 0, repeatAt = {},
     armed = false, radial = false, radialIndex = 1, dialogIndex = 1,
     drive = true, moving = false, pausedForRadial = false,
@@ -10,6 +10,13 @@ PSTController = {
     moveTurnInterval = 35,
 }
 local pad = PSTController
+-- Freecam tuning (pixels/second of camera pan and marker stickiness 0..1/s).
+-- Override per user: set PSTPAD_FREECAM in the game's Baldur.lua, e.g.
+--   PSTPAD_FREECAM = { stick = 900, sticky = 6 }
+-- or globally via the environment in Baldur.lua's SetPrivateProfile overrides.
+local env_tuning = PSTPAD_FREECAM or {}
+pad.FREECAM_STICK  = tonumber(env_tuning.stick)  or 620   -- camera pan speed
+pad.FREECAM_STICKY = tonumber(env_tuning.sticky) or 6     -- marker pull per second
 function pad.haptic() end  -- replaced when the native bridge provides op 20
 local loader, loadError
 if type(PSTPadNative) == 'function' then
@@ -939,7 +946,7 @@ function pad.Step()
     -- through runs. Hysteresis keeps the boundary from flapping. Dialogs and
     -- menus never touch the setting.
     if pad.runEnabled==nil then pad.runEnabled=runSetting() end
-    local stickRun = inWorld and pad.drive and not navigatingWorldMenu
+    local stickRun = inWorld and pad.drive and not navigatingWorldMenu and not pad.freecam
         and (lm >= 0.62 or (pad.runEnabled and lm > 0.45))
     if stickRun~=nil and stickRun~=pad.runEnabled and inWorld then
         pad.runEnabled=stickRun
@@ -1064,12 +1071,75 @@ function pad.Step()
         if dx~=0 or dy~=0 then pad.native(18,dx,dy) end
     else pad.cameraRemainderX,pad.cameraRemainderY=nil,nil end
 
-    -- L3 is no longer the walk/run switch: speed follows stick deflection.
-    -- The release/neutral frame clears the run state so the next hold starts
-    -- from the deflection, not the previous run.
-    if edge(64) and inWorld then
-        resetSteeringFilter()
-        pad.native(12,311,runSetting() and 1 or 0,0)
+    if pad.freecam and (not inWorld or navigatingWorldMenu or editing or inDialog) then
+        pad.freecam=false
+        pad.native(1, pad.cursorX or mx, pad.cursorY or my)
+    end
+    if pad.freecam and inWorld and not navigatingWorldMenu and not editing then
+        -- Pan with the left stick; the marker stays where it is on screen, so
+        -- the world slides under it.
+        if lm>0 then
+            local speed=pad.FREECAM_STICK*lm
+            pad.cameraRemainderX=(pad.cameraRemainderX or 0)+lx/lm*speed*elapsed
+            pad.cameraRemainderY=(pad.cameraRemainderY or 0)+(-ly/lm)*speed*elapsed
+            local dx=math.modf(pad.cameraRemainderX)
+            local dy=math.modf(pad.cameraRemainderY)
+            pad.cameraRemainderX,pad.cameraRemainderY=pad.cameraRemainderX-dx,pad.cameraRemainderY-dy
+            if dx~=0 or dy~=0 then pad.native(18,dx,dy) end
+        end
+        -- Sticky marker: a very weak pull toward the best interactive near the
+        -- marker, so slow stick movement settles on targets instead of sliding
+        -- past them. The pull is proportional to the offset and clamped.
+        local target
+        do
+            local best,bestd
+            for n=1,64 do
+                local valid,id,x,y,kind,distance,count=pad.native(6,n,0)
+                if valid==1 then
+                    local ddx,ddy=(x-(pad.markerX or width/2))/width,(y-(pad.markerY or height/2))/height
+                    local d=math.sqrt(ddx*ddx+ddy*ddy)
+                    if d<0.34 and (not bestd or d<bestd) then best={id=id,x=x,y=y,kind=kind}; bestd=d end
+                elseif not count or n>=count then break end
+            end
+            target=best
+        end
+        if target then
+            local mxp,myp=pad.markerX or width/2,pad.markerY or height/2
+            local pull=pad.FREECAM_STICKY*elapsed
+            pad.markerX=mxp+(target.x-mxp)*math.min(1,pull)
+            pad.markerY=myp+(target.y-myp)*math.min(1,pull)
+            pad.freecamTarget=target
+        else pad.freecamTarget=nil end
+        -- Draw the marker as the engine's own selection ring by parking the
+        -- hover feed on it, exactly like the world target highlight.
+        pad.native(1, math.floor((pad.markerX or width/2)+0.5), math.floor((pad.markerY or height/2)+0.5))
+        if edge(4096) and pad.freecamTarget then
+            -- Interact through the same nearby pipeline the world uses.
+            pad.native(12,101,pad.freecamTarget.id,game:GetState())
+            pad.freecamTarget.state,pad.freecamTarget.icon=game:GetState(),game:GetIconIndex()
+            pad.nearby=pad.freecamTarget
+            pad.pendingTarget=pad.freecamTarget; pad.pendingWorld='interact'; pad.pendingWorldAt=now; key(13)
+        end
+        pad.status='Xbox | freecam: LS pan  marker: '..(pad.freecamTarget and 'locked' or 'free')..'  A: interact  L3: exit'
+        return pad.status
+    end
+
+    -- L3 toggles freecam: the stick pans the camera, a sticky white marker in
+    -- the screen centre highlights whatever it hovers, and A interacts with it.
+    -- The marker drifts toward nearby interactives with a very weak pull, and
+    -- the pull strength is configurable (PSTPAD_FREECAM in Baldur.lua).
+    if edge(64) and inWorld and not navigatingWorldMenu then
+        if pad.freecam then
+            pad.freecam=false
+            stopMovement()
+            pad.native(1, pad.cursorX or mx, pad.cursorY or my)
+            pad.status='Xbox | freecam off'
+        elseif not talking and not pad.targetMode and not pad.activation then
+            pad.freecam=true
+            stopMovement()
+            pad.markerX,pad.markerY=width/2,height/2
+            pad.status='Xbox | freecam: LS pans, marker selects, A interacts, L3 exits'
+        end
     end
     if edge(128) and inWorld then
         stopMovement(); pad.pendingWorld='all'; pad.pendingWorldAt=now; key(13)
@@ -1079,11 +1149,16 @@ function pad.Step()
         stopMovement(); pad.pendingWorld='options'; pad.pendingWorldAt=now; key(13)
     end
     if edge(16) and inWorld then stopMovement(); key(32) end
-    if edge(512) and not inDialog then
+    -- L1+R1 together select the entire party; each alone cycles a member.
+    local lb,rb=down(buttons,256),down(buttons,512)
+    if inWorld and lb and rb and (edge(256) or edge(512)) then
+        stopMovement()
+        game:SelectAll()
+        pad.status='Xbox | party selected'
+    elseif edge(512) and not inDialog then
         stopMovement()
         pad.slot = (pad.slot + 1) % math.max(1, Infinity_GetNumCharacters()); key(49 + pad.slot)
-    end
-    if edge(256) and not inDialog then
+    elseif edge(256) and not inDialog then
         stopMovement()
         pad.slot = (pad.slot + math.max(1, Infinity_GetNumCharacters()) - 1) % math.max(1, Infinity_GetNumCharacters()); key(49 + pad.slot)
     end
@@ -1143,10 +1218,12 @@ function pad.Step()
             end
         end
         if math.abs(ly) > 0.4 and not editing then
-            -- Down on the stick shows later text, up shows earlier text.
+            -- Push up = earlier text, push down = later text, by stick SIGN,
+            -- not magnitude: a full tilt must not read as the other direction.
+            -- (rawLY is sThumbLY: positive = stick pushed up.)
             if now >= (pad.chatScrollNext or 0) then
                 pad.chatScrollNext = now + 90
-                pad.chatScrollRequest = ly > 0 and -70 or 70
+                pad.chatScrollRequest = ly < 0 and -70 or 70
                 if chatboxScrollToBottom ~= 0 then chatboxScrollToBottom = 0 end
             end
         else pad.chatScrollNext = nil end
@@ -1193,13 +1270,13 @@ function pad.Step()
         and game:GetState()==0 and not worldScreen:CheckIfPaused()
         and not pad.activation and not pad.pendingWorld and now>=(pad.interactionHoldUntil or 0)
         and now>=(pad.manualAimUntil or 0),width,height,playerX,playerY,now)
-    -- Highlight the current target with the engine's own selection-marker box
-    -- so it is always visible what A will act on. The tick runs inside the UI
-    -- render pass, so the box lands on the current frame.
+    -- Target highlight: park the real mouse on the current target so the
+    -- engine draws its own hover ring - the same circle the mouse produces -
+    -- around whatever A would act on. The controller's world cursor stays
+    -- hidden; the warped position is only the hover feed.
     if pad.nearby and inWorld and pad.drive and not navigatingWorldMenu and not editing
         and not pad.targetMode and not pad.activation and not pad.pendingWorld then
-        pad.native(22, math.floor(pad.nearby.x + 0.5), math.floor(pad.nearby.y + 0.5),
-            pad.nearby.kind or 0)
+        pad.native(1, math.floor(pad.nearby.x + 0.5), math.floor(pad.nearby.y + 0.5))
     end
     if pad.targetMode and not pad.activation then targetNavigation(now,lx,ly,lm,width,height) end
     if magnitude>0 and pad.driveCursorHidden then stopMovement(); mx,my=pad.cursorX,pad.cursorY end

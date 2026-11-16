@@ -428,19 +428,17 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                      */
                     if (!same_owner || run!=steering_run) prepare_group_run((void *)area);
                     if (flow) {
-                        /* The stick always drives the Nameless One (party
-                         * slot 0), whatever the player has selected, and every
-                         * other party member follows him explicitly: the
-                         * engine's own follow only fires through group orders,
-                         * which the party only receives when fully selected.
-                         */
-                        uint32_t leader_id=0;
+                        /* The stick drives the FIRST SELECTED character - the
+                         * selection head - whoever that is: with the whole party
+                         * selected it is the Nameless One, with only Morte
+                         * selected it is Morte alone and nobody else moves.
+                         * Unselected members never receive orders. */
+                        uint32_t leader_id=id;
                         int16_t party_count=0;
                         int32_t leader_origin[2]={0,0};
-                        int have_leader = read_memory(game+0xa218,&party_count,2)
-                            && party_count>=1 && party_count<=6
-                            && read_memory(game+0xa200,&leader_id,4)
-                            && leader_id && leader_id!=UINT32_MAX;
+                        int have_leader = leader_id && leader_id!=UINT32_MAX
+                            && read_memory(game+0xa218,&party_count,2)
+                            && party_count>=1 && party_count<=6;
                         if (have_leader) {
                             uintptr_t actor=object_for_id(leader_id);
                             if (actor && read_pointer(actor+0x18)==area
@@ -544,7 +542,11 @@ static int dispatch_steering(lua_State *state,int operation,int dx,int dy,int fo
                          * position; close enough means left alone, so nobody
                          * twitches at his heels.
                          */
-                        for (int slot=1;slot<party_count;++slot) {
+                        int32_t selected_total=0;
+                        read_memory(game+0xa2b0,&selected_total,4);
+                        /* Every party member except the driven leader may need a
+                         * follow order, regardless of slot order. */
+                        if (selected_total>1) for (int slot=0;slot<party_count;++slot) {
                             uint32_t cid=0;
                             uintptr_t actor=0;
                             int32_t cpos[2]={0,0};

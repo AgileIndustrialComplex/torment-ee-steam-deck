@@ -968,14 +968,39 @@ static int poll_pad(XINPUT_STATE *state) {
      * pumping from both stalls the game loop. The direct evdev reader
      * below keeps the pad state fresh without touching SDL's queue. */
     si_try_init();
+    /* Steam Input and evdev must never mix within one stick: SI goes silent
+     * inside its own action deadzone and reawakens past it, so slight tilts
+     * would come from evdev and full tilts from SI - and any per-source axis
+     * processing then reads as an inversion ("tilt a little = up, tilt fully =
+     * down"). Prefer ONE source per poll, and only fall through to evdev when
+     * Steam Input produced nothing at all this frame. */
     si_sourced_pad = si_poll(state, NULL, NULL);
     if (si_sourced_pad) {
         /* Steam Input actions own the analog axes, but buttons are ORed with the
          * physical pad: on Deck hardware the D-pad has been seen missing from
          * the action set while evdev still reports it, and a button that one
-         * source cannot see must not be masked out by the other. */
+         * source cannot see must not be masked by the other. */
         direct_poll();
         if (direct_fd >= 0) state->Gamepad.wButtons |= direct_buttons;
+        /* Axis cross-check: if evdev is live and disagrees in SIGN with the SI
+         * stick on a clearly-deflected axis, Steam is post-processing the
+         * action (camera modes invert y). evdev is the kernel truth - use the
+         * evdev axes for that frame. */
+        if (direct_fd >= 0) {
+            int lxd = state->Gamepad.sThumbLX, lyd = -state->Gamepad.sThumbLY;
+            if ((lxd > 12000 || lxd < -12000) && (direct_lx > 12000 || direct_lx < -12000)
+                && ((lxd > 0) != (direct_lx > 0))) {
+                state->Gamepad.sThumbLX = direct_lx;
+                state->Gamepad.sThumbLY = (short)-direct_ly;
+                state->Gamepad.sThumbRX = direct_rx;
+                state->Gamepad.sThumbRY = (short)-direct_ry;
+            } else if ((lyd > 12000 || lyd < -12000) && (direct_ly > 12000 || direct_ly < -12000)
+                && ((lyd > 0) != (direct_ly > 0))) {
+                state->Gamepad.sThumbLY = (short)-direct_ly;
+                state->Gamepad.sThumbRX = direct_rx;
+                state->Gamepad.sThumbRY = (short)-direct_ry;
+            }
+        }
         pad_source = 1;
         return 1;
     }

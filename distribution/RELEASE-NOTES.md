@@ -1,4 +1,4 @@
-# PST:EE Xbox Controller Mod 0.3.7 - preview
+# PST:EE Xbox Controller Mod 0.3.8 - preview
 
 Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 
@@ -19,6 +19,27 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 - A skips active movies; D-pad selects confirmation buttons, with Quit starting on No.
 - Real mouse click returns to PC mode; a controller button/trigger reactivates Xbox.
 - No top PC/controller status text. Back/View opens Options; Start pauses.
+
+## Changes in 0.3.8
+
+- **Selection drives movement.** The first selected character leads and only
+  selected characters move: with the whole party selected the Nameless One
+  walks and companions follow; with only Morte selected, only Morte moves.
+  **L1+R1 together select the entire party**; each bumper alone still cycles
+  members. The rectangular target marker is gone - the target now shows the
+  engine's own hover ring, the same one the mouse produces.
+- **Freecam on L3.** Click the left stick to pan the camera with it: a white
+  marker sits at the screen centre, stickily drawn to nearby interactives
+  (very weak pull), the hover highlight shows what it locks on to, and A
+  interacts with it. L3 again exits. The pan speed and the marker stickiness
+  are configurable per user - set `PSTPAD_FREECAM = { stick = 620, sticky = 6 }`
+  in the mod profile's Baldur.lua.
+- **Input sign fixes.** Chat scrolling and the camera now respond to the stick
+  by sign, not magnitude (a full tilt no longer reads as the opposite
+  direction), and Steam Input's analog axes are cross-checked against evdev -
+  when Steam post-processes an action into an inverted axis, the kernel reading
+  wins. The Steam Input manifest's Camera action is now a plain joystick, so
+  Steam's camera-mode processing cannot invert it in the first place.
 
 ## Changes in 0.3.7
 
@@ -214,7 +235,7 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
   save copying. Original saves are not deleted or imported automatically.
 - Gameplay and native binaries are unchanged from 0.1.29.
 
-Use **PSTEE-Xbox-Controller-v0.3.7-preview.zip** to install (Windows) or the
+Use **PSTEE-Xbox-Controller-v0.3.8-preview.zip** to install (Windows) or the
 Deck AppImage / native preview ZIP (Linux). The source ZIP is for
 GitHub/building. Close the game, uninstall an older managed version, then install.
 Launch through Play-Controller-Mod.cmd or ControllerLab.exe. Disable Steam Input.

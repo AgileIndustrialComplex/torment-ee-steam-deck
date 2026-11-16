@@ -1,6 +1,6 @@
 # Controller Lab - developer workspace
 
-Current release: **0.3.7**. Read the public [README](../distribution/README.md)
+Current release: **0.3.8**. Read the public [README](../distribution/README.md)
 and [controls](../distribution/CONTROLS.md) for installation and gameplay.
 [PROTOTYPE.md](PROTOTYPE.md) describes the implementation and guard conditions;
 [MENU-CHECKS.md](MENU-CHECKS.md) records the current navigation check scope.

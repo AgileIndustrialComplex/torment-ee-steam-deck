@@ -18,7 +18,7 @@
 				"Camera"
 				{
 					"title" "#Camera"
-					"input_mode" "joystick_camera"
+					"input_mode" "joystick_move"
 				}
 			}
 			"AnalogTrigger"
