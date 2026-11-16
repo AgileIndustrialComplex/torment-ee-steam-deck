@@ -1,4 +1,4 @@
-# PST:EE Xbox Controller Mod 0.3.9 - preview
+# PST:EE Xbox Controller Mod 0.4.0 - preview
 
 Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 
@@ -19,6 +19,22 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 - A skips active movies; D-pad selects confirmation buttons, with Quit starting on No.
 - Real mouse click returns to PC mode; a controller button/trigger reactivates Xbox.
 - No top PC/controller status text. Back/View opens Options; Start pauses.
+
+## Changes in 0.4.0
+
+- **Full-tilt direction inversion fixed.** At exactly maximum deflection the
+  evdev axis value is -32768; the poll negates it into a 16-bit value, and
+  -(-32768) = 32768 wraps back to negative - inverting the axis ONLY at full
+  upward tilt. Every axis is now clamped to -32767 before negation, in the
+  evdev, Steam Input and SDL paths alike.
+- **The freecam marker is visible.** A dedicated selection-ring label
+  (PSTPSEL) is repositioned every tick with Infinity_SetArea, since the label
+  engine has no dynamic areas. It appears at the screen centre in freecam,
+  follows the sticky target, and disappears on exit.
+- **The OS cursor no longer flickers.** The game's hover logic calls
+  SDL_ShowCursor(1) over interactives every frame, racing the mod's hide. The
+  export itself is now prologue-hooked for the duration the mod owns the
+  cursor, so the game's re-show calls are held off until the restore.
 
 ## Changes in 0.3.9
 
@@ -248,7 +264,7 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
   save copying. Original saves are not deleted or imported automatically.
 - Gameplay and native binaries are unchanged from 0.1.29.
 
-Use **PSTEE-Xbox-Controller-v0.3.9-preview.zip** to install (Windows) or the
+Use **PSTEE-Xbox-Controller-v0.4.0-preview.zip** to install (Windows) or the
 Deck AppImage / native preview ZIP (Linux). The source ZIP is for
 GitHub/building. Close the game, uninstall an older managed version, then install.
 Launch through Play-Controller-Mod.cmd or ControllerLab.exe. Disable Steam Input.

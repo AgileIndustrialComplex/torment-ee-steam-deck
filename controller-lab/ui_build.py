@@ -96,6 +96,15 @@ menu
     ignoreEsc
     ignoreFocus 1
     ignoreNav 1
+    label
+    {
+        name 'PST_FREECAM_MARKER'
+        enabled "PSTController.freecam"
+        area 480 363 64 64
+        bam 'PSTPSEL'
+        sequence 2
+        frame 0
+    }
     button
     {
         area 0 0 0 0

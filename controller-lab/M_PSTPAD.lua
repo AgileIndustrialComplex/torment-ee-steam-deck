@@ -1,6 +1,6 @@
 -- PST:EE Xbox prototype. Native input stays inside the foreground game process.
 PSTController = {
-    version = '0.3.9', status = 'Starting Xbox mod', error = nil,
+    version = '0.4.0', status = 'Starting Xbox mod', error = nil,
     buttons = 0, lastTick = 0, lastMove = 0, repeatAt = {},
     armed = false, radial = false, radialIndex = 1, dialogIndex = 1,
     drive = true, moving = false, pausedForRadial = false,
@@ -228,6 +228,21 @@ local PAD_BIT_NAMES = {
     {64,'L3'},{128,'R3'},{256,'L1'},{512,'R1'},{4096,'A'},{8192,'B'},
     {16384,'X'},{32768,'Y'},
 }
+-- Freecam marker label: UI areas are static, so the label is repositioned at
+-- runtime with Infinity_SetArea (the same mechanism the nearby badge uses).
+-- Screen to design-space conversion accounts for the letterboxed 1024x768 UI.
+function pad.FreecamMarkerUpdate(width, height)
+    if not pad.freecam then return end
+    local x = pad.markerX or width / 2
+    local y = pad.markerY or height / 2
+    local scale = Infinity_GetINIValue('Graphics', 'Scale UI', 1) ~= 0
+        and math.min(width / 1024, height / 768) or 1
+    local left = (width - 1024 * scale) / 2
+    local dx = clamp((x - left) / scale - 21, -64, 1024)
+    local dy = clamp(y / scale - 21, -64, 768)
+    Infinity_SetArea('PST_FREECAM_MARKER', math.floor(dx + 0.5), math.floor(dy + 0.5), 43, 43)
+end
+
 function pad.DebugOverlay()
     if pad.error then return 'pad error: ' .. tostring(pad.error) end
     local d = pad.debug
@@ -1110,8 +1125,10 @@ function pad.Step()
             pad.markerY=myp+(target.y-myp)*math.min(1,pull)
             pad.freecamTarget=target
         else pad.freecamTarget=nil end
-        -- Draw the marker as the engine's own selection ring by parking the
-        -- hover feed on it, exactly like the world target highlight.
+        -- Draw the marker: the label engine has no dynamic areas, so the label
+        -- is repositioned every tick; the hover feed parks the real mouse on
+        -- it so interactives under it highlight with the engine's own ring.
+        pad.FreecamMarkerUpdate(width, height)
         pad.native(1, math.floor((pad.markerX or width/2)+0.5), math.floor((pad.markerY or height/2)+0.5))
         if edge(4096) and pad.freecamTarget then
             -- Interact through the same nearby pipeline the world uses.

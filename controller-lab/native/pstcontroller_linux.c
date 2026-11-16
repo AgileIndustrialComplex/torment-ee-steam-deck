@@ -451,8 +451,9 @@ static unsigned sdl_button(int button) {
 static short sdl_axis(int axis) {
     if (!gamepad) return 0;
     int value = ((int (*)(void *, int))((uintptr_t)engine + LX_SDL_GAME_CONTROLLER_GET_AXIS_ADDR))(gamepad, axis);
+    /* -32767 floor: the negation into a short must not wrap. */
     if (value > 32767) value = 32767;
-    if (value < -32768) value = -32768;
+    if (value < -32767) value = -32767;
     return (short)value;
 }
 static void *sdl_controller_open(int index) {
@@ -582,8 +583,12 @@ static int direct_open_prepare(int fd) {
 static short direct_scale(int value, int minimum, int maximum) {
     if (maximum <= minimum) return 0;
     long scaled = ((long)(value - minimum) * 65535L) / (maximum - minimum) - 32768L;
+    /* Clamp to -32767, not -32768: the poll negates this value into a short,
+     * and -(-32768) = 32768 wraps back to -32768 - inverting the axis exactly
+     * at full deflection (full stick up read as down). Real pads DO hit the
+     * minimum; test fixtures that stop at -30000 never reproduce it. */
     if (scaled > 32767) scaled = 32767;
-    if (scaled < -32768) scaled = -32768;
+    if (scaled < -32767) scaled = -32767;
     return (short)scaled;
 }
 
@@ -1317,9 +1322,8 @@ static int dispatch(lua_State *state) {
     else if (cursor_hidden_by_mod) set_drive_cursor_hidden(1);
     if (operation == 5) set_drive_cursor_hidden(focused && a != 0);
     /* A warp (the hover feed) can race the game's own cursor-show logic within
-     * a frame; re-assert the hidden state so no OS cursor appears over the
-     * highlighted target. */
-    if (operation == 1 && focused && cursor_hidden_by_mod) show_cursor(0);
+     * a frame; the SDL_ShowCursor gate keeps the OS pointer invisible while the
+     * mod owns the cursor, so only the engine's hover ring shows. */
     void *window = mouse_focus();
     if (!window) window = keyboard_focus();
     int x = 0, y = 0, width = 0, height = 0;
@@ -1657,18 +1661,67 @@ static int install_set_pointer_filter(void) {
         (void *)filtered_set_pointer);
 }
 
+/* While the mod owns the cursor, the game's hover logic calls
+ * SDL_ShowCursor(1) over interactives every frame, racing our hide and
+ * producing a flickering OS cursor. The export is patched with the same
+ * prologue-hook mechanism as CVidMode::SetPointer, so the GAME's calls are
+ * gated too, not just ours. */
+static volatile int cursor_gated;
+static SdlShowCursor real_show_cursor_hook;
+static int gated_show_cursor(int toggle) {
+    if (cursor_gated && toggle != 0) {
+        /* The game wants it visible again; remember that for the restore. */
+        if (cursor_visibility_before_drive < 1) cursor_visibility_before_drive = 1;
+        return 1;
+    }
+    return real_show_cursor_hook ? real_show_cursor_hook(toggle) : 0;
+}
+/* SDL_ShowCursor's first 5 bytes are endbr64+push rbx+mov ebx,[rip+..]: plain,
+ * no relative operands to fix up, so a trampoline replaying them and jumping
+ * back to entry+5 is sufficient. */
+static int install_show_cursor_gate(void) {
+    unsigned char original[8];
+    static const unsigned char prologue[5] = {0xf3,0x0f,0x1e,0xfa,0x53};
+    if (memcmp((const void *)((uintptr_t)engine + LX_SDL_SHOW_CURSOR_ADDR), prologue, sizeof(prologue)) != 0)
+        return 0;
+    memcpy(original, prologue, sizeof(prologue));
+    unsigned char trampoline[32];
+    memcpy(trampoline, original, sizeof(prologue));
+    absolute_jump(trampoline + sizeof(prologue),
+        (const void *)((uintptr_t)engine + LX_SDL_SHOW_CURSOR_ADDR + sizeof(prologue)));
+    unsigned char *gate = make_gate(trampoline, sizeof(prologue) + 14);
+    if (!gate) return 0;
+    real_show_cursor_hook = (SdlShowCursor)gate;
+    static char prologue_hex[16];
+    for (size_t i = 0; i < sizeof(prologue); ++i)
+        snprintf(prologue_hex + i * 2, 3, "%02x", prologue[i]);
+    return patch_checked_bytes((unsigned char *)((uintptr_t)engine + LX_SDL_SHOW_CURSOR_ADDR),
+        prologue_hex, sizeof(prologue), (void *)gated_show_cursor);
+}
 static void set_drive_cursor_hidden(int hide) {
     if (hide && !cursor_hidden_by_mod) {
         cursor_visibility_before_drive = show_cursor(-1);
         cursor_hidden_by_mod = 1;
     }
     if (hide) {
-        show_cursor(0);
+        if (!cursor_gated) {
+            /* Patch the export so the game's re-show calls are held off until
+             * the restore; our own pointer still routes through the gate. */
+            if (real_show_cursor_hook || install_show_cursor_gate()) {
+                cursor_gated = 1;
+                show_cursor = gated_show_cursor;
+            }
+        }
+        if (real_show_cursor_hook) real_show_cursor_hook(0); else show_cursor(0);
     } else if (cursor_hidden_by_mod) {
         cursor_hidden_by_mod = 0;
         if (desired_video && original_set_pointer)
             original_set_pointer(desired_video, desired_pointer, desired_resref, desired_flag, desired_mode);
         desired_video = desired_pointer = 0;
+        if (cursor_gated) {
+            cursor_gated = 0;
+            show_cursor = real_show_cursor_hook;
+        }
         show_cursor(cursor_visibility_before_drive > 0 ? 1 : 0);
     }
 }
