@@ -1321,6 +1321,19 @@ static int dispatch(lua_State *state) {
     if (!focused) set_drive_cursor_hidden(0);
     else if (cursor_hidden_by_mod) set_drive_cursor_hidden(1);
     if (operation == 5) set_drive_cursor_hidden(focused && a != 0);
+    /* While the mod owns the cursor, strip whatever hover cell the game's
+     * cursor manager installed (CInfCursor::SetCursor writes it through the
+     * 4-arg CVidMode::SetPointer at video+0x160). Clearing the field every
+     * poll keeps the hover sprite from rendering without touching the
+     * game's control flow. */
+    if (cursor_hidden_by_mod) {
+        uintptr_t chitin = read_pointer((uintptr_t)engine + E_CHITIN_PTR);
+        if (chitin) {
+            uintptr_t video = read_pointer(chitin + CHITIN_VIDEO);
+            if (video && point_is_writable(video + 0x160))
+                memset((void *)(video + 0x160), 0, 8);
+        }
+    }
     /* A warp (the hover feed) can race the game's own cursor-show logic within
      * a frame; the SDL_ShowCursor gate keeps the OS pointer invisible while the
      * mod owns the cursor, so only the engine's hover ring shows. */
@@ -1661,13 +1674,16 @@ static int install_set_pointer_filter(void) {
         (void *)filtered_set_pointer);
 }
 
-/* While the mod owns the cursor, the game's hover logic calls
- * SDL_ShowCursor(1) over interactives every frame, racing our hide and
- * producing a flickering OS cursor. The export is patched with the same
- * prologue-hook mechanism as CVidMode::SetPointer, so the GAME's calls are
- * gated too, not just ours. */
-static volatile int cursor_gated;
+/* The hover cursor over interactables is drawn by CInfCursor::SetCursor -
+ * the game's cursor manager switching to a hover cell - which bypasses the
+ * CVidMode::SetPointer filter through its 4-arg overload. Rather than
+ * hooking SetCursor (its prologue is large and register-dense), the poll
+ * clears the cursor cell field (video+0x160) every frame while the mod owns
+ * the cursor: whatever cell the hover logic installed is removed before the
+ * frame renders. Zero risk to the caller, one 8-byte write. */
+
 static SdlShowCursor real_show_cursor_hook;
+static volatile int cursor_gated;
 static int gated_show_cursor(int toggle) {
     if (cursor_gated && toggle != 0) {
         /* The game wants it visible again; remember that for the restore. */
@@ -1676,9 +1692,6 @@ static int gated_show_cursor(int toggle) {
     }
     return real_show_cursor_hook ? real_show_cursor_hook(toggle) : 0;
 }
-/* SDL_ShowCursor's first 5 bytes are endbr64+push rbx+mov ebx,[rip+..]: plain,
- * no relative operands to fix up, so a trampoline replaying them and jumping
- * back to entry+5 is sufficient. */
 static int install_show_cursor_gate(void) {
     unsigned char original[8];
     static const unsigned char prologue[5] = {0xf3,0x0f,0x1e,0xfa,0x53};

@@ -104,6 +104,7 @@
 #define LX_UI_DO_FILE_SIZE 562u
 
 /* patched to suppress cursor updates while the mod hides the cursor */
+#define LX_CINF_CURSOR_SET_CURSOR_ADDR 0x361150u
 #define LX_CVIDEO_SET_POINTER_ADDR 0x680f90u
 #define LX_CVIDEO_SET_POINTER_SIZE 265u
 

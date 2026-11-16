@@ -1,4 +1,4 @@
-# PST:EE Xbox Controller Mod 0.4.0 - preview
+# PST:EE Xbox Controller Mod 0.4.1 - preview
 
 Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 
@@ -19,6 +19,17 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
 - A skips active movies; D-pad selects confirmation buttons, with Quit starting on No.
 - Real mouse click returns to PC mode; a controller button/trigger reactivates Xbox.
 - No top PC/controller status text. Back/View opens Options; Start pauses.
+
+## Changes in 0.4.1
+
+- **No cursor over interactables.** The hover pointer that appeared over
+  entities, doors and containers came from the game's cursor manager
+  (CInfCursor::SetCursor), which installs a hover sprite through a path the
+  SetPointer filter never sees. While the mod owns the cursor, every pad poll
+  now clears the installed cursor cell before the frame renders, so nothing
+  can draw a pointer over interactables - only the engine's own hover ring
+  remains. (An earlier attempt hooked SetCursor itself and crashed the game;
+  the shipped fix is a one-field clear with no control-flow risk.)
 
 ## Changes in 0.4.0
 
@@ -264,7 +275,7 @@ Xbox/XInput support for the verified Windows x64 PST:EE 3.2.2.0 executable.
   save copying. Original saves are not deleted or imported automatically.
 - Gameplay and native binaries are unchanged from 0.1.29.
 
-Use **PSTEE-Xbox-Controller-v0.4.0-preview.zip** to install (Windows) or the
+Use **PSTEE-Xbox-Controller-v0.4.1-preview.zip** to install (Windows) or the
 Deck AppImage / native preview ZIP (Linux). The source ZIP is for
 GitHub/building. Close the game, uninstall an older managed version, then install.
 Launch through Play-Controller-Mod.cmd or ControllerLab.exe. Disable Steam Input.
